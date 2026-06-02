@@ -1,6 +1,6 @@
 def main():
-    input_file = "/home/jacob/PHD/graal-ws/experiment/Control/exp_reduced/source_mapping.txt"
-    output_file = "/home/jacob/PHD/graal-ws/experiment/Control/exp_reduced/source_mapping_l.txt"
+    input_file = "/home/jacob/PHD/graal-ws/experiment/Control/exp_f2/source_mapping.txt"
+    output_file = "/home/jacob/PHD/graal-ws/experiment/Control/exp_f2/source_mapping_l.txt"
 
 
 
@@ -16,9 +16,9 @@ def main():
             try:
                 n = int(p)
                 if n < 0:
-                    converted.append(f"{n+256:x}")
+                    converted.append(f"{n+256:02x}")
                 else:
-                    converted.append(f"{n:x}")
+                    converted.append(f"{n:02x}")
             except ValueError:
                 return line
 

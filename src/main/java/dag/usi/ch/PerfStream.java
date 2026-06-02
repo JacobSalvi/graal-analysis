@@ -17,6 +17,8 @@ class PerfStream implements Iterator<PerfInfo>, AutoCloseable {
     private Process process;
     private BufferedReader reader;
 
+    int counter = 0;
+
     private String next;
     private final Map<String, Integer> methodNameToId;
 
@@ -35,23 +37,50 @@ class PerfStream implements Iterator<PerfInfo>, AutoCloseable {
 
         Path file = perfFiles.get(currentFileIndex++);
 
-//        ProcessBuilder pb = new ProcessBuilder(
-//                "perf", "script",
-//                "--insn-trace",
-//                "--no-demangle",
-//                "--fields", "ip,sym,symoff",
-//                "-i", file.toString()
-//        );
-//
-//        pb.redirectErrorStream(true);
-//        process = pb.start();
+        ProcessBuilder pb = new ProcessBuilder(
+                "perf", "script",
+                "--insn-trace",
+                "--no-demangle",
+                "--fields", "ip,sym,symoff",
+                "-i", file.toString()
+        );
 
-//        reader = new BufferedReader(
-//                new InputStreamReader(process.getInputStream()),
-//                1 << 20
-//        );
+        pb.redirectErrorStream(true);
+        process = pb.start();
 
-        reader = new BufferedReader(new FileReader("/home/jacob/PHD/graal-ws/experiment/Control/ccc.txt"));
+        reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()),
+                1 << 20
+        );
+
+//        reader = new BufferedReader(new FileReader("/home/jacob/PHD/graal-ws/experiment/Control/ccc.txt"));
+    }
+
+    @Override
+    public boolean hasNext() {
+        if (next != null) return true;
+
+        try {
+            while (true) {
+
+                if (reader == null) return false;
+
+                next = reader.readLine();
+                // 94260019127926
+                // 55ba9ef4e676
+                // 55ba9ef4e688 _ZN15dag.usi.ch.Main4mainEJvP18java.lang.String[]+0xc8
+                if(next!=null&& next.contains("55ba9ef4e67f")){
+                    counter++;
+                }
+
+                if (next != null) return true;
+
+                process.waitFor();
+                startNextProcess();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
 //    @Override
@@ -66,38 +95,17 @@ class PerfStream implements Iterator<PerfInfo>, AutoCloseable {
 //                next = reader.readLine();
 //
 //                if (next != null) return true;
+//                if(next == null){
+//                    return false;
+//                }
 //
-//                process.waitFor();
-//                startNextProcess();
+////                process.waitFor();
+////                startNextProcess();
 //            }
 //        } catch (Exception e) {
 //            throw new RuntimeException(e);
 //        }
 //    }
-
-    @Override
-    public boolean hasNext() {
-        if (next != null) return true;
-
-        try {
-            while (true) {
-
-                if (reader == null) return false;
-
-                next = reader.readLine();
-
-                if (next != null) return true;
-                if(next == null){
-                    return false;
-                }
-
-//                process.waitFor();
-//                startNextProcess();
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
 //    int robe = 0;
 //    @Override
 //    public boolean hasNext() {

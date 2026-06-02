@@ -393,10 +393,14 @@ public class App {
         Map<Long, PerfMatch> offsetToMatch = new HashMap<>();
         Map<Long, LongCounter> offsetToCount = new HashMap<>();
 //        Map<PerfInfo, Method> infoToMethod = new HashMap<>();
+        int counter = 0;
         while(perfstream.hasNext()){
             PerfInfo info = perfstream.next();
             if(info == null){
                 continue;
+            }
+            if(info.pc() == 94520975156916L){
+                counter++;
             }
             // if we already have matched this sequence of instructions
             // increment the match counter
@@ -404,7 +408,7 @@ public class App {
                 PerfMatch match = offsetToMatch.get(info.pc());
                 offsetToCount.get(info.pc()).increment();
                 // skip the following N lines in the block of instructions
-                perfstream.skip(match.infos().size());
+                perfstream.skip(match.infos().size()-1);
                 // should be correct to set last match to null
                 lastMatch = null;
                 continue;
@@ -418,30 +422,31 @@ public class App {
                 method.setBaseOffset(computeBaseOffset(info, method));
             }
             String relativePc = Long.toHexString(info.pc() - method.baseOffset());
-
-            if(!perfLineToMatch.containsKey(info)){
+            Match match = null;
+//            if(!perfLineToMatch.containsKey(info)){
                 for (int i = 0; i < method.instrs().size(); i++) {
                     if (method.instrs().get(i).offset().equals(relativePc)) {
-                        Match match = perfToSourceMapping(i, methodToMatches.get(method));
-                        if(match!=null){
-                            perfLineToMatch.put(info, match);
-                        }
+                        match = perfToSourceMapping(i, methodToMatches.get(method));
+//                        if(match!=null){
+//                            perfLineToMatch.put(info, match);
+//                        }
                         break;
                     }
                 }
-            }
+//            }
             // if match is different to last match then we are mapping to a different line
             // These three instructions match to a single condition in the original java
             // aec9f:	90                   	nop
             // aeca0:	80 f8 04             	cmp    $0x4,%al
             // aeca3:	0f 84 a5 00 00 00    	je     aed4e <__svm_code_section@@Base+0x1ed4e>
-            Match match = perfLineToMatch.get(info);
+//            Match match = perfLineToMatch.get(info);
             if(match == null){
                 continue;
             }
             if(lastMatch == null){
                 lastMatch = match;
                 firstOffset = info.pc();
+                infos = new ArrayList<>();
                 infos.add(info);
                 continue;
             }
@@ -500,7 +505,6 @@ public class App {
 
                     for (String condSp : ci.cond()) {
                         if (condSp.equals(sp)) {
-                            writer.write("  ");
                             writer.write(String.format(
                                     "Condition from %s executed %d times",
                                     condSp,
