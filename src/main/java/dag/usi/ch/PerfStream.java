@@ -1,15 +1,13 @@
 package dag.usi.ch;
 
-import javax.annotation.processing.Filer;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
-class PerfStream implements Iterator<PerfInfo>, AutoCloseable {
+class PerfStream extends AbstractPerfStream{
 
     private final List<Path> perfFiles;
     private int currentFileIndex = 0;
@@ -83,49 +81,6 @@ class PerfStream implements Iterator<PerfInfo>, AutoCloseable {
         }
     }
 
-//    @Override
-//    public boolean hasNext() {
-//        if (next != null) return true;
-//
-//        try {
-//            while (true) {
-//
-//                if (reader == null) return false;
-//
-//                next = reader.readLine();
-//
-//                if (next != null) return true;
-//                if(next == null){
-//                    return false;
-//                }
-//
-////                process.waitFor();
-////                startNextProcess();
-//            }
-//        } catch (Exception e) {
-//            throw new RuntimeException(e);
-//        }
-//    }
-//    int robe = 0;
-//    @Override
-//    public boolean hasNext() {
-//        String a = "56412592e688 _ZN15dag.usi.ch.Main4mainEJvP18java.lang.String[]+0xa8";
-//        String b = "56412592e68a _ZN15dag.usi.ch.Main4mainEJvP18java.lang.String[]+0xaa";
-//        if(next!=null){
-//            return true;
-//        }
-//        if(robe == 0){
-//            next = a;
-//            robe++;
-//            return true;
-//        }
-//        if(robe == 1){
-//            next = b;
-//            robe++;
-//            return true;
-//        }
-//        return false;
-//    }
 
     @Override
     public PerfInfo next() {

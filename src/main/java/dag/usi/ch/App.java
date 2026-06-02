@@ -370,7 +370,8 @@ public class App {
 
 
 
-        PerfStream perfStream = new PerfStream(perfFolder, res.b);
+//        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
+        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, res.b());
         Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, methodToMatches, res.c());
         System.out.println("\n");
         System.out.println("Extracted perf data");
@@ -382,7 +383,7 @@ public class App {
     record PerfMatch(List<PerfInfo> infos, Match match){}
     record Pair<T, R> (T first, R second) {}
 
-    private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(PerfStream perfstream,
+    private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(AbstractPerfStream perfstream,
                                                                             Map<Method, List<Match>> methodToMatches,
                                                                                Map<Integer, Method> idToMethod) {
         Map<PerfInfo, Match> perfLineToMatch = new HashMap<>();
