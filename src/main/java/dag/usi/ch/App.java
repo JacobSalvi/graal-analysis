@@ -7,14 +7,6 @@ import java.util.regex.*;
 
 
 public class App {
-    public static List<String> toHex(List<Integer> rawOps) {
-        List<String> result = new ArrayList<>();
-        for (int e : rawOps) {
-            int val = (e >= 0) ? e : e + 256;
-            result.add(String.format("0x%02x", val));
-        }
-        return result;
-    }
 
     private static long computeBaseOffset(PerfInfo info, Method method) {
 //        String baseAddress;
@@ -73,9 +65,7 @@ public class App {
                 String ops = splitLine[1].trim();
                 List<String> opsList = new ArrayList<>();
                 String mnemonic = splitLine.length == 3 ? splitLine[2]: null;
-                for (String e : ops.split(" ")) {
-                    opsList.add("0x" + e);
-                }
+                Collections.addAll(opsList, ops.split(" "));
                 mLines.add(new Instr(instructionOffset, opsList, mnemonic));
             }
 
@@ -130,100 +120,69 @@ public class App {
         return new int[]{beg, end};
     }
 
-    private static boolean isNumeric(String s) {
-        try {
-            Integer.parseInt(s);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
+    private static Map<Integer, List<SourceMapping>> loadGraalData(
+            Path inputFile,
+            Map<String, Integer> methodNameToId,
+            int counter
+    ) throws IOException {
 
-    private static Map<Integer, List<SourceMapping>> loadGraalData(Path inputFile, Map<String, Integer> methodNameToId, int counter) throws IOException {
         Map<Integer, List<SourceMapping>> functionToSourceMapping = new HashMap<>();
 
-        boolean sourceMappingStart = false;
-        List<String> ops = new ArrayList<>();
-        List<String> sourcePosition = new ArrayList<>();
-        String name = "";
+        BufferedReader br = new BufferedReader(
+                new InputStreamReader(new FileInputStream(inputFile.toFile())),
+                1 << 20
+        );
 
-        BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(inputFile.toFile())), 1 << 20);
         String line;
 
-        int beg = 0;
-        int end = 0;
-
         while ((line = br.readLine()) != null) {
-            if (line.contains("Source mapping")) {
-                if(!sourceMappingStart){
-                    int indexDash = line.indexOf("-");
-                    // 16 is the precomputed space before the number
-                    beg = Integer.parseInt(line.substring(16, indexDash).trim());
-                    end = Integer.parseInt(line.substring(indexDash+2));
-                    sourceMappingStart = true;
-                    continue;
-                }
 
-                List<Integer> ints = new ArrayList<>();
-                for (String e : ops) {
-                    if (!e.isEmpty() && isNumeric(e)) {
-                        ints.add(Integer.parseInt(e));
-                    }
-                }
+            if (line.isBlank()) continue;
 
-                List<String> instrs = toHex(ints);
-                if(!methodNameToId.containsKey(name)){
-                    methodNameToId.put(name, counter++);
-                }
-                Integer nameId = methodNameToId.get(name);
-                String last = sourcePosition.getLast().split(" ")[1];
-                if(!methodNameToId.containsKey(last)){
-                    methodNameToId.put(last, counter++);
-                }
-                int calleeId = methodNameToId.get(last);
-                SourceMapping sm = new SourceMapping(instrs, new ArrayList<>(sourcePosition), nameId, beg, end, calleeId);
-                functionToSourceMapping.computeIfAbsent(calleeId, k -> new ArrayList<>()).add(sm);
+            String[] parts = line.split(",", -1);
+            if (parts.length < 4) continue;
 
-                int indexDash = line.indexOf("-");
-                // 16 is the precomputed space before the number
-                beg = Integer.parseInt(line.substring(16, indexDash).trim());
-                end = Integer.parseInt(line.substring(indexDash+2));
+            // range
+            String[] range = parts[0].trim().split("-");
+            int beg = Integer.parseInt(range[0].trim());
+            int end = Integer.parseInt(range[1].trim());
 
-                ops.clear();
-                sourcePosition.clear();
-                name = "";
+            List<String> instrs = List.of(parts[1].trim().split(" "));
+
+            // at... entries (everything except first 2 and last field)
+            List<String> sourcePosition = new ArrayList<>();
+            for (int i = 2; i < parts.length - 1; i++) {
+                String s = parts[i].trim();
+                if (!s.isEmpty()) {
+                    sourcePosition.add(s);
+                }
             }
 
-            if (!sourceMappingStart) {
-                continue;
-            }
+            // method
+            String name = parts[parts.length - 1].trim();
 
-            String stripped = line.trim();
+            methodNameToId.putIfAbsent(name, counter++);
+            int nameId = methodNameToId.get(name);
 
-            if (stripped.startsWith("at")) {
-                sourcePosition.add(line);
-            } else if (stripped.startsWith("_ZN")) {
-                name = stripped;
-            } else {
-                ops = new ArrayList<>(Arrays.asList(line.trim().split(" ")));
-            }
+            String lastAt = sourcePosition.getLast();
+            String lastKey = lastAt.split(" ")[1];
 
-            if (stripped.startsWith("[")) {
-                break;
-            }
+            methodNameToId.putIfAbsent(lastKey, counter++);
+            int calleeId = methodNameToId.get(lastKey);
+
+            SourceMapping sm = new SourceMapping(
+                    instrs,
+                    sourcePosition,
+                    nameId,
+                    beg,
+                    end,
+                    calleeId
+            );
+
+            functionToSourceMapping
+                    .computeIfAbsent(calleeId, k -> new ArrayList<>())
+                    .add(sm);
         }
-
-        // last element
-        Integer nameId = methodNameToId.get(name);
-        List<Integer> ints = new ArrayList<>();
-        List<String> instrs = toHex(ints);
-        String last = sourcePosition.getLast().split(" ")[1];
-        if(!methodNameToId.containsKey(last)){
-            methodNameToId.put(last, counter);
-        }
-        int calleeId = methodNameToId.get(last);
-        SourceMapping sm = new SourceMapping(instrs, new ArrayList<>(sourcePosition), nameId, beg, end, calleeId);
-        functionToSourceMapping.computeIfAbsent(calleeId, k -> new ArrayList<>()).add(sm);
 
         return functionToSourceMapping;
     }
@@ -240,6 +199,18 @@ public class App {
         return null;
     }
 
+    private static List<CondInfo> adjustCondInfos(List<CondInfo> condInfos, List<Block> blocks){
+        for(CondInfo ci: condInfos){
+            for(Block b: blocks){
+                if(ci.cond().get(0).equals(b.lines.get(0))){
+                    ci.setP(b.p());
+                    ci.setUf(b.uf());
+                }
+            }
+        }
+        return condInfos;
+    }
+
     private static List<CondInfo> loadConditionMapping(Path conditionMappingFile) throws IOException {
         BufferedReader br = new BufferedReader(new FileReader(conditionMappingFile.toFile()));
         String line;
@@ -251,7 +222,6 @@ public class App {
 //        true: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
 //        false: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
 //        --------------------------------------
-        int state = 0;
         int i = 0;
         while ((line = br.readLine()) != null) {
             i++;
@@ -264,27 +234,23 @@ public class App {
                 }
                 int bcitrue = Integer.parseInt(currentTrue.get(0).substring(currentTrue.get(0).lastIndexOf(" ")+1, currentTrue.get(0).length()-1));
                 int bcifalse = Integer.parseInt(currentFalse.get(0).substring(currentFalse.get(0).lastIndexOf(" ")+1, currentFalse.get(0).length()-1));
-                condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse));
+                condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse, 1, 0));
                 currentCond = new ArrayList<>();
                 currentTrue = new ArrayList<>();
                 currentFalse = new ArrayList<>();
                 continue;
             }
             if(line.startsWith("cond: ")){
-                state = 1;
-                currentCond.add(line.substring(6));
+                String subString = line.substring(6);
+                Collections.addAll(currentCond, subString.split(","));
             } else if (line.startsWith("true: ")) {
-                state = 2;
                 currentTrue.add(line.substring(6));
+                String subString = line.substring(6);
+                Collections.addAll(currentTrue, subString.split(","));
             } else if(line.startsWith("false: ")){
-                state = 3;
                 currentFalse.add(line.substring(7));
-            } else{
-                switch(state){
-                    case 1 -> currentCond.add(line);
-                    case 2 -> currentTrue.add(line);
-                    case 3 -> currentFalse.add(line);
-                }
+                String subString = line.substring(7);
+                Collections.addAll(currentFalse, subString.split(","));
             }
         }
 //        int bcitrue = Integer.parseInt(currentTrue.get(0).substring(currentTrue.get(0).lastIndexOf(" ")+1, currentTrue.get(0).length()-1));
@@ -377,6 +343,8 @@ public class App {
         System.out.println("Extracted perf data");
         List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
         System.out.println("Loaded condition mapping");
+//        List<Block> blocks = extractBlock(conditionMappingFile.getParent().resolve("loop_begin.txt"));
+//        condInfos = adjustCondInfos(condInfos, blocks);
         printResult(condInfos, p.first(), p.second());
     }
 
@@ -483,6 +451,47 @@ public class App {
     }
 
 
+    public record Block(List<String> lines, int p, int uf) {}
+
+
+    public static List<Block> extractBlock(Path file) throws IOException {
+        final Pattern END_PATTERN = Pattern.compile(".*\\[(\\d+),\\s*(\\d+)\\]\\s*$");
+        List<Block> blocks = new ArrayList<>();
+
+
+        try (BufferedReader reader = Files.newBufferedReader(file)) {
+
+            List<String> currentBlock = new ArrayList<>();
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                currentBlock.add(line);
+
+                Matcher matcher = END_PATTERN.matcher(line);
+                if (matcher.matches()) {
+                    int uf = Integer.parseInt(matcher.group(1));
+                    int p = Integer.parseInt(matcher.group(2));
+
+                    blocks.add(
+                        new Block(
+                            new ArrayList<>(currentBlock),
+                            uf,
+                            p
+                        )
+                    );
+
+                    currentBlock.clear();
+                }
+            }
+
+            if (!currentBlock.isEmpty()) {
+                throw new IllegalStateException(
+                        "File ended with an incomplete block");
+            }
+        }
+        return blocks;
+    }
+
     private static void printResult(List<CondInfo> condInfos,
                                     Map<Long, PerfMatch> pcToMatch,
                                     Map<Long, LongCounter> pcToCount) {
@@ -506,10 +515,13 @@ public class App {
 
                     for (String condSp : ci.cond()) {
                         if (condSp.equals(sp)) {
+                            long count = pcToCount.get(e.getKey()).count();
+                            // compensate for peeling and unrolling.
+                            count = ci.p()+ci.uf()*count;
                             writer.write(String.format(
                                     "Condition from %s executed %d times",
                                     condSp,
-                                    pcToCount.get(e.getKey()).count()
+                                    count
                             ));
                             writer.newLine();
                             break;
