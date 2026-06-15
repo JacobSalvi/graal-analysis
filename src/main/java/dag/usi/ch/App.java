@@ -244,11 +244,9 @@ public class App {
                 String subString = line.substring(6);
                 Collections.addAll(currentCond, subString.split(","));
             } else if (line.startsWith("true: ")) {
-                currentTrue.add(line.substring(6));
                 String subString = line.substring(6);
                 Collections.addAll(currentTrue, subString.split(","));
             } else if(line.startsWith("false: ")){
-                currentFalse.add(line.substring(7));
                 String subString = line.substring(7);
                 Collections.addAll(currentFalse, subString.split(","));
             }
