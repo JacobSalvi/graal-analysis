@@ -7,104 +7,6 @@ import java.util.regex.*;
 
 
 public class App {
-
-    private static long computeBaseOffset(PerfInfo info, Method method) {
-//        String baseAddress;
-        int offsetInt = Integer.parseInt(info.offset().substring(2), 16);
-        int count = 0;
-        String instrOffset = null;
-
-        for (Instr instr : method.instrs()) {
-            if (count == offsetInt) {
-                instrOffset = instr.offset();
-                break;
-            }
-            count += instr.instr().size();
-        }
-
-        if (instrOffset == null) {
-            throw new RuntimeException("no base_address could be found");
-        }
-        return info.pc() - Long.parseLong(instrOffset, 16);
-    }
-
-
-    private record Quad<A, B, C, D> (A a, B b, C c, D d){}
-
-    private static Quad<List<Method>, Map<String, Integer>, Map<Integer, Method>, Integer> extractMethodsFromObjdump(Path objFile) throws IOException {
-        List<Method> methods = new ArrayList<>();
-
-        String currentMethod = "";
-        List<Instr> mLines = new ArrayList<>();
-        BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(objFile.toFile())), 1<<20);
-        String line;
-
-        Map<String, Integer> methodNameToId = new HashMap<>();
-        Map<Integer, Method> idToMethod = new HashMap<>();
-        int counter=0;
-        while ((line = br.readLine()) != null) {
-            if (line.startsWith("_ZN")) {
-                if (!currentMethod.isEmpty()) {
-                    // remove (): from method name
-                    String methodName = currentMethod.substring(0, currentMethod.length()-3);
-                    if(!methodNameToId.containsKey(methodName)){
-                        methodNameToId.put(methodName, counter++);
-                    }
-                    Method method = new Method(methodNameToId.get(methodName), mLines, 0);
-                    idToMethod.put(methodNameToId.get(methodName), method);
-                    methods.add(method);
-                }
-                currentMethod = line;
-                mLines = new ArrayList<>();
-                continue;
-            }
-
-            if(line.startsWith("  ")){
-                String[] splitLine = line.split("\t");
-                String instructionOffset = splitLine[0].substring(3, splitLine[0].length()-1);
-                String ops = splitLine[1].trim();
-                List<String> opsList = new ArrayList<>();
-                String mnemonic = splitLine.length == 3 ? splitLine[2]: null;
-                Collections.addAll(opsList, ops.split(" "));
-                mLines.add(new Instr(instructionOffset, opsList, mnemonic));
-            }
-
-        }
-
-        if (!currentMethod.isEmpty()) {
-            String methodName = currentMethod.substring(0, currentMethod.length()-3);
-            if(!methodNameToId.containsKey(methodName)){
-                methodNameToId.put(methodName, counter++);
-            }
-            Method method = new Method(methodNameToId.get(methodName), mLines, 0);
-            methods.add(method);
-            idToMethod.put(methodNameToId.get(methodName), method);
-        }
-        return new Quad<>(methods, methodNameToId, idToMethod, counter);
-    }
-
-    private static int[] mapToObjdump(Method method, SourceMapping sourceMapping) {
-        int base = Integer.parseInt(method.instrs().getFirst().offset(), 16);
-
-        int beg = -1;
-        int end = -1;
-
-        for (int i = 0; i < method.instrs().size(); i++) {
-            int offset = Integer.parseInt(method.instrs().get(i).offset(), 16);
-            int relativeOffset = offset - base;
-            if(sourceMapping.beg() == relativeOffset){
-                beg = i;
-
-            }
-            if(sourceMapping.end() == relativeOffset){
-                end = i-1;
-                break;
-            }
-        }
-
-        return new int[]{beg, end};
-    }
-
     private static Map<Integer, List<SourceMapping>> loadGraalData(
             Path inputFile,
             Map<String, Integer> methodNameToId,
@@ -172,18 +74,6 @@ public class App {
         return functionToSourceMapping;
     }
 
-    record Match(SourceMapping sm, int[] beg_end, Method m) {
-    }
-
-    private static Match perfToSourceMapping(int i, List<Match> matches) {
-        for(Match match: matches){
-            if(i >= match.beg_end()[0] && i <= match.beg_end()[1]){
-                return match;
-            }
-        }
-        return null;
-    }
-
     private static List<CondInfo> adjustCondInfos(List<CondInfo> condInfos, List<Block> blocks){
         for(CondInfo ci: condInfos){
             for(Block b: blocks){
@@ -234,9 +124,6 @@ public class App {
                 Collections.addAll(currentFalse, subString.split(","));
             }
         }
-//        int bcitrue = Integer.parseInt(currentTrue.get(0).substring(currentTrue.get(0).lastIndexOf(" ")+1, currentTrue.get(0).length()-1));
-//        int bcifalse = Integer.parseInt(currentFalse.get(0).substring(currentFalse.get(0).lastIndexOf(" ")+1, currentFalse.get(0).length()-1));
-//        condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse));
         return condInfos;
     }
 
@@ -293,20 +180,18 @@ public class App {
         assert perfFolder != null;
         assert conditionMappingFile != null;
         long start = System.currentTimeMillis();
-        var res = extractMethodsFromObjdump(objFile);
         System.out.printf("Extracting objdump info took %d\n", (System.currentTimeMillis()-start)/ 1000);
-        List<Method> methods = res.a();
         start = System.currentTimeMillis();
-        Map<Integer, List<SourceMapping>> funcToSourceMapping = loadGraalData(graal_output, res.b(), res.d());
+        Map<String, Integer> methodNameToId = new HashMap<>();
+        Map<Integer, List<SourceMapping>> funcToSourceMapping = loadGraalData(graal_output, methodNameToId, 0);
         System.out.printf("Extracting graal data took %d\n", (System.currentTimeMillis()-start)/ 1000);
 
 
-        Map<Method, List<Match>> methodToMatches = getMethodToMatches(methods, funcToSourceMapping);
         System.out.println("Created method to source mapping");
 
 //        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
-        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, res.b());
-        Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, methodToMatches, res.c());
+        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, methodNameToId);
+        Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, funcToSourceMapping);
         System.out.println("\n");
         System.out.println("Extracted perf data");
         List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
@@ -317,34 +202,12 @@ public class App {
         outputIprof(condInfos, p.first(), p.second());
     }
 
-    private static Map<Method, List<Match>> getMethodToMatches(List<Method> methods, Map<Integer, List<SourceMapping>> funcToSourceMapping) {
-        Map<Method, List<Match>> methodToMatches = new HashMap<>();
-        for(Method method: methods){
-            methodToMatches.put(method, new ArrayList<>());
-        }
-        // matches between source mapping and objdump
-        for (var sourceMapping : funcToSourceMapping.entrySet()) {
-            List<Method> filteredMethods = methods.stream().filter(m -> m.nameId()  == sourceMapping.getKey()).toList();
-            if (filteredMethods.isEmpty()) {
-                continue;
-            }
-            Method method = filteredMethods.getFirst();
-            for (SourceMapping sm : sourceMapping.getValue()) {
-                int[] beg_end = mapToObjdump(method, sm);
-                methodToMatches.get(method).add(new Match(sm, beg_end, method));
-            }
-        }
-        return methodToMatches;
-    }
-
-    record PerfMatch(List<PerfInfo> infos, Match match){}
+    record PerfMatch(List<PerfInfo> infos, SourceMapping  match){}
     record Pair<T, R> (T first, R second) {}
 
-    private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(AbstractPerfStream perfstream,
-                                                                            Map<Method, List<Match>> methodToMatches,
-                                                                               Map<Integer, Method> idToMethod) {
+    private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(AbstractPerfStream perfstream, Map<Integer, List<SourceMapping>> methodToSourceMappings) {
 
-        Match lastMatch = null;
+        SourceMapping lastMatch = null;
         Long firstOffset = null;
         List<PerfInfo> infos = new ArrayList<>();
         Map<Long, PerfMatch> offsetToMatch = new HashMap<>();
@@ -367,26 +230,14 @@ public class App {
                 continue;
             }
 
-            Method method = idToMethod.get(info.nameId());
-            if(method==null){
-                continue;
-            }
-            if(method.baseOffset() == 0){
-                method.setBaseOffset(computeBaseOffset(info, method));
-            }
-            String relativePc = Long.toHexString(info.pc() - method.baseOffset());
-            Match match = null;
-//            if(!perfLineToMatch.containsKey(info)){
-                for (int i = 0; i < method.instrs().size(); i++) {
-                    if (method.instrs().get(i).offset().equals(relativePc)) {
-                        match = perfToSourceMapping(i, methodToMatches.get(method));
-//                        if(match!=null){
-//                            perfLineToMatch.put(info, match);
-//                        }
-                        break;
-                    }
+            int offset = Integer.valueOf(info.offset().substring(2), 16);
+            SourceMapping match = null;
+            for(SourceMapping sm: methodToSourceMappings.get(info.nameId())){
+                if(sm.beg() == offset){
+                    match = sm;
+                    break;
                 }
-//            }
+            }
             // if match is different to last match then we are mapping to a different line
             // These three instructions match to a single condition in the original java
             // aec9f:	90                   	nop
@@ -493,7 +344,7 @@ public class App {
 
             for (var e : pcToMatch.entrySet()) {
                 for (CondInfo ci : condInfos) {
-                    String sp = e.getValue().match().sm().sourcePosition().getFirst();
+                    String sp = e.getValue().match().sourcePosition().getFirst();
 
                     for (String condSp : ci.cond()) {
                         if (condSp.equals(sp)) {
@@ -594,7 +445,7 @@ public class App {
         List<ContextComponent> context = null;
     
         for (var e : pcToMatch.entrySet()) {
-            String sp = e.getValue().match().sm().sourcePosition().getFirst();
+            String sp = e.getValue().match().sourcePosition().getFirst();
 
             for (String condSp : ci.cond()) {
                 if (condSp.equals(sp)) {
@@ -636,53 +487,29 @@ public class App {
             long executions = ctxAndExecutions.second();
             // matches the condition being executed
             for (var e : pcToMatch.entrySet()) {
-                String sp = e.getValue().match().sm().sourcePosition().getFirst();
+                String sp = e.getValue().match().sourcePosition().getFirst();
                 // matches a true successor being executed
                 String trueSp = ci.trueBranch().getFirst();
-                // for (String trueSp : ci.trueBranch()) {
+                int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
                 if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
-                    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
                     // given that the compiler might remove portion of code
                     // as long as the bytecode that was used to emit the binary code
                     // comes from the true block this should be correct.
                     if(bci >= ci.truebci() && bci < ci.falsebci()){
                         long count = pcToCount.get(e.getKey()).count();
                         trueBranches.add(new BranchData(bci, 0, count));
-                        // if(count > executions){
-                        //     continue;
-                        // }
-                        // if(trueBranch == null){
-                        //     trueBranch = new BranchData(bci, 0, count);
-                        // } else if(trueBranch.executions() < count){
-                        //     trueBranch = new BranchData(bci, 0, count);
-                        // }
                         continue;
                     }
                 }
-                // }
 
                 // matches a false successor being executed
                 String falseSp = ci.falseBranch().getFirst();
-                // for (String falseSp : ci.falseBranch()) {
                 if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
-                // if (falseSp.equals(sp)) {
-                    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
                     if(bci == ci.falsebci()){
                         long count = pcToCount.get(e.getKey()).count();
                         falseBranches.add(new BranchData(bci, 0, count));
-//                         if(count > executions){
-//                             continue;
-//                         }
-// //                        falseBranch = new BranchData(bci, 1, count);
-//                         if(falseBranch == null){
-//                             falseBranch = new BranchData(bci, 0, count);
-//                         } else if(falseBranch.executions() < count){
-//                             falseBranch = new BranchData(bci, 0, count);
-//                         }
                     }
-                    // break;
                 }
-                // }
             }
             if(context==null){
                 continue;
