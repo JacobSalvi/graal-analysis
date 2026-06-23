@@ -1,7 +1,7 @@
 package dag.usi.ch;
 
 public class LongCounter {
-    private long count = 0;
+    private long count;
 
     public LongCounter(long c){
         count=c;

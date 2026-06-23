@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 class PerfStream extends AbstractPerfStream{
 
@@ -21,7 +22,12 @@ class PerfStream extends AbstractPerfStream{
     private final Map<String, Integer> methodNameToId;
 
     public PerfStream(Path perfFolder, Map<String, Integer> methodNameToId) throws IOException {
-        this.perfFiles = Files.list(perfFolder).toList();
+        try (Stream<Path> stream = Files.list(perfFolder)) {
+            this.perfFiles = stream
+                    .filter(p -> p.getFileName().toString().endsWith(".data"))
+                    .toList();
+        }
+
         this.methodNameToId = methodNameToId;
         startNextProcess();
     }

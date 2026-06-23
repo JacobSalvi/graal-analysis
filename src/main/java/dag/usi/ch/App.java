@@ -84,36 +84,21 @@ public class App {
     }
 
     private static int[] mapToObjdump(Method method, SourceMapping sourceMapping) {
-        List<String> targetInstr = sourceMapping.bytes();
+        int base = Integer.parseInt(method.instrs().getFirst().offset(), 16);
 
         int beg = -1;
         int end = -1;
 
         for (int i = 0; i < method.instrs().size(); i++) {
-            List<String> currentInstrs = new ArrayList<>(method.instrs().get(i).instr());
+            int offset = Integer.parseInt(method.instrs().get(i).offset(), 16);
+            int relativeOffset = offset - base;
+            if(sourceMapping.beg() == relativeOffset){
+                beg = i;
 
-            if (targetInstr.subList(0, Math.min(targetInstr.size(), currentInstrs.size()))
-                    .equals(currentInstrs)) {
-
-                int j = i + 1;
-
-                while (currentInstrs.size() < targetInstr.size()) {
-                    if (j >= method.instrs().size()) break;
-
-                    currentInstrs.addAll(method.instrs().get(j).instr());
-                    if(currentInstrs.size() > targetInstr.size()){
-                        break;
-                    }
-
-                    if (!targetInstr.subList(0, currentInstrs.size()).equals(currentInstrs)) break;
-                    j++;
-                }
-
-                if (targetInstr.equals(currentInstrs)) {
-                    beg = i;
-                    end = j - 1;
-                    break;
-                }
+            }
+            if(sourceMapping.end() == relativeOffset){
+                end = i-1;
+                break;
             }
         }
 
@@ -165,7 +150,7 @@ public class App {
             int nameId = methodNameToId.get(name);
 
             String lastAt = sourcePosition.getLast();
-            String lastKey = lastAt.split(" ")[1];
+            String lastKey = lastAt.split(" ")[0];
 
             methodNameToId.putIfAbsent(lastKey, counter++);
             int calleeId = methodNameToId.get(lastKey);
@@ -202,7 +187,7 @@ public class App {
     private static List<CondInfo> adjustCondInfos(List<CondInfo> condInfos, List<Block> blocks){
         for(CondInfo ci: condInfos){
             for(Block b: blocks){
-                if(ci.cond().get(0).equals(b.lines.get(0))){
+                if(ci.cond().getFirst().equals(b.lines.getFirst())){
                     ci.setP(b.p());
                     ci.setUf(b.uf());
                 }
@@ -222,9 +207,7 @@ public class App {
 //        true: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
 //        false: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
 //        --------------------------------------
-        int i = 0;
         while ((line = br.readLine()) != null) {
-            i++;
             if(line.contains("--------------------------------------")){
                 if(currentCond.isEmpty() || currentTrue.isEmpty() || currentFalse.isEmpty()){
                     currentCond = new ArrayList<>();
@@ -232,8 +215,8 @@ public class App {
                     currentFalse = new ArrayList<>();
                     continue;
                 }
-                int bcitrue = Integer.parseInt(currentTrue.get(0).substring(currentTrue.get(0).lastIndexOf(" ")+1, currentTrue.get(0).length()-1));
-                int bcifalse = Integer.parseInt(currentFalse.get(0).substring(currentFalse.get(0).lastIndexOf(" ")+1, currentFalse.get(0).length()-1));
+                int bcitrue = Integer.parseInt(currentTrue.getFirst().substring(currentTrue.getFirst().lastIndexOf(" ")+1, currentTrue.getFirst().length()-1));
+                int bcifalse = Integer.parseInt(currentFalse.getFirst().substring(currentFalse.getFirst().lastIndexOf(" ")+1, currentFalse.getFirst().length()-1));
                 condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse, 1, 0));
                 currentCond = new ArrayList<>();
                 currentTrue = new ArrayList<>();
@@ -305,6 +288,10 @@ public class App {
             usage();
         }
 
+        assert objFile != null;
+        assert graal_output != null;
+        assert perfFolder != null;
+        assert conditionMappingFile != null;
         long start = System.currentTimeMillis();
         var res = extractMethodsFromObjdump(objFile);
         System.out.printf("Extracting objdump info took %d\n", (System.currentTimeMillis()-start)/ 1000);
@@ -314,6 +301,23 @@ public class App {
         System.out.printf("Extracting graal data took %d\n", (System.currentTimeMillis()-start)/ 1000);
 
 
+        Map<Method, List<Match>> methodToMatches = getMethodToMatches(methods, funcToSourceMapping);
+        System.out.println("Created method to source mapping");
+
+//        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
+        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, res.b());
+        Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, methodToMatches, res.c());
+        System.out.println("\n");
+        System.out.println("Extracted perf data");
+        List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
+        System.out.println("Loaded condition mapping");
+//        List<Block> blocks = extractBlock(conditionMappingFile.getParent().resolve("loop_begin.txt"));
+//        condInfos = adjustCondInfos(condInfos, blocks);
+        printResult(condInfos, p.first(), p.second());
+        outputIprof(condInfos, p.first(), p.second());
+    }
+
+    private static Map<Method, List<Match>> getMethodToMatches(List<Method> methods, Map<Integer, List<SourceMapping>> funcToSourceMapping) {
         Map<Method, List<Match>> methodToMatches = new HashMap<>();
         for(Method method: methods){
             methodToMatches.put(method, new ArrayList<>());
@@ -330,20 +334,7 @@ public class App {
                 methodToMatches.get(method).add(new Match(sm, beg_end, method));
             }
         }
-        System.out.println("Created method to source mapping");
-
-
-
-//        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
-        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, res.b());
-        Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, methodToMatches, res.c());
-        System.out.println("\n");
-        System.out.println("Extracted perf data");
-        List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
-        System.out.println("Loaded condition mapping");
-//        List<Block> blocks = extractBlock(conditionMappingFile.getParent().resolve("loop_begin.txt"));
-//        condInfos = adjustCondInfos(condInfos, blocks);
-        printResult(condInfos, p.first(), p.second());
+        return methodToMatches;
     }
 
     record PerfMatch(List<PerfInfo> infos, Match match){}
@@ -352,7 +343,6 @@ public class App {
     private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(AbstractPerfStream perfstream,
                                                                             Map<Method, List<Match>> methodToMatches,
                                                                                Map<Integer, Method> idToMethod) {
-        Map<PerfInfo, Match> perfLineToMatch = new HashMap<>();
 
         Match lastMatch = null;
         Long firstOffset = null;
@@ -360,14 +350,10 @@ public class App {
         Map<Long, PerfMatch> offsetToMatch = new HashMap<>();
         Map<Long, LongCounter> offsetToCount = new HashMap<>();
 //        Map<PerfInfo, Method> infoToMethod = new HashMap<>();
-        int counter = 0;
         while(perfstream.hasNext()){
             PerfInfo info = perfstream.next();
             if(info == null){
                 continue;
-            }
-            if(info.pc() == 94520975156916L){
-                counter++;
             }
             // if we already have matched this sequence of instructions
             // increment the match counter
@@ -506,8 +492,6 @@ public class App {
             writer.newLine();
 
             for (var e : pcToMatch.entrySet()) {
-
-                int a = 0;
                 for (CondInfo ci : condInfos) {
                     String sp = e.getValue().match().sm().sourcePosition().getFirst();
 
@@ -593,6 +577,212 @@ public class App {
                 }
             }
 
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    private record BranchData(int bci, int id, long executions){}
+    private record Triplet<A, B, C> (A a, B b, C c){}
+
+    record ContextComponent(String name, int bci, String signature){}
+
+    private static Pair<List<ContextComponent>, Long> getContext(Map<Long, PerfMatch> pcToMatch,  Map<Long, LongCounter> pcToCount, CondInfo ci, IProfBuilder ipf){
+        // matches the condition being executed
+        long executions = 0;
+        List<ContextComponent> context = null;
+    
+        for (var e : pcToMatch.entrySet()) {
+            String sp = e.getValue().match().sm().sourcePosition().getFirst();
+
+            for (String condSp : ci.cond()) {
+                if (condSp.equals(sp)) {
+                    long count = pcToCount.get(e.getKey()).count();
+                    // compensate for peeling and unrolling.
+                    count = ci.p()+ci.uf()*count;
+                    executions = count;
+                    List<ContextComponent> contextComponents = new ArrayList<>();
+                    for (String c : ci.cond()) {
+                        String cName = c.substring(0, c.indexOf(" ["));
+                        int bciConditional = Integer.parseInt(c.substring(c.lastIndexOf(" ")+1, c.length()-1));
+                        // take this part [([Ljava/lang/String;)V]
+                        String signature = c.split(" ")[1];
+                        signature = signature.substring(1, signature.length()-1);
+                        ipf.addTypes(signature);
+                        contextComponents.add(new ContextComponent(cName, bciConditional, signature));
+                    }
+                    context = contextComponents;
+                    break;
+                }
+            }
+        }
+        return new Pair<>(context, executions);
+    }
+
+    private static void outputIprof(List<CondInfo> condInfos,
+                                    Map<Long, PerfMatch> pcToMatch,
+                                    Map<Long, LongCounter> pcToCount) {
+        List<Triplet<List<ContextComponent>, BranchData, BranchData>> ctxToRecords = new ArrayList<>();
+        IProfBuilder ipf = new IProfBuilder();
+
+        for(CondInfo ci: condInfos){
+            List<ContextComponent> context = null;
+            BranchData trueBranch = null;
+            BranchData falseBranch = null;
+            // this is useful for debugging.
+            long executions = 0;
+                
+            var ctxAndExecutions = getContext(pcToMatch, pcToCount, ci, ipf);
+            context = ctxAndExecutions.first();
+            executions = ctxAndExecutions.second();
+            // matches the condition being executed
+            for (var e : pcToMatch.entrySet()) {
+                String sp = e.getValue().match().sm().sourcePosition().getFirst();
+                // matches a true successor being executed
+                String trueSp = ci.trueBranch().getFirst();
+                // for (String trueSp : ci.trueBranch()) {
+                if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
+                    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
+                    // given that the compiler might remove portion of code
+                    // as long as the bytecode that was used to emit the binary code
+                    // comes from the true block this should be correct.
+                    if(bci >= ci.truebci() && bci < ci.falsebci()){
+                        long count = pcToCount.get(e.getKey()).count();
+                        if(count > executions){
+                            continue;
+                        }
+                        if(trueBranch == null){
+                            trueBranch = new BranchData(bci, 0, count);
+                        } else if(trueBranch.executions() < count){
+                            trueBranch = new BranchData(bci, 0, count);
+                        }
+                        continue;
+                    }
+                }
+                // }
+
+                // matches a false successor being executed
+                String falseSp = ci.falseBranch().getFirst();
+                // for (String falseSp : ci.falseBranch()) {
+                if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
+                // if (falseSp.equals(sp)) {
+                    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
+                    if(bci == ci.falsebci()){
+                        long count = pcToCount.get(e.getKey()).count();
+                        if(count > executions){
+                            continue;
+                        }
+//                        falseBranch = new BranchData(bci, 1, count);
+                        if(falseBranch == null){
+                            falseBranch = new BranchData(bci, 0, count);
+                        } else if(falseBranch.executions() < count){
+                            falseBranch = new BranchData(bci, 0, count);
+                        }
+                    }
+                    // break;
+                }
+                // }
+            }
+            if(context==null){
+                continue;
+            }
+            assert executions+1 == trueBranch.executions()+falseBranch.executions();
+            ctxToRecords.add(new Triplet<>(context, trueBranch, falseBranch));
+        }
+
+        List<IProfMethod> iprofMethods = ipf.createMethods(ctxToRecords.stream().map(Triplet::a).toList());
+
+        Path path = Paths.get("profile.iprof");
+        //  {
+        //   "ctx": "28755:10<28754:19",
+        //   "records": [
+        //     13,
+        //     0,
+        //     1000000,
+        //     35,
+        //     1,
+        //     1
+        //   ]
+        // },
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                path,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE)) {
+                writer.write("{");
+                writer.write("\"version\": \"1.1.0\",");
+                // write the "types" section
+                writer.write("\"types\": [");
+                List<String> records = new ArrayList<>();
+                for(var e: ipf.getTypeToId().entrySet()){
+                    String type = e.getKey();
+                    long id = e.getValue();
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("{");
+                    sb.append("\"id\":");
+                    sb.append(id);
+                    sb.append(",");
+                    sb.append("\"name\":");
+                    sb.append("\"");
+                    sb.append(type);
+                    sb.append("\"");
+                    sb.append("}");
+                    records.add(sb.toString());
+                }
+                writer.write(String.join(",", records));
+                writer.write("]");
+                writer.write(",");
+
+                // write methods section 
+                writer.write("\"methods\": [");
+                records = new ArrayList<>();
+                for(IProfMethod ipm: iprofMethods){
+                    // Pair<String, String> names = demangle(e.name());
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("{");
+                    sb.append("\"id\":");
+                    sb.append(ipm.id());
+                    sb.append(",");
+                    sb.append("\"name\":");
+                    sb.append("\""+ipm.name()+"\"");
+                    sb.append(",");
+                    sb.append("\"signature\":");
+                    sb.append(ipm.signature());
+                    sb.append("}");
+                    records.add(sb.toString());
+                }
+                writer.write(String.join(",", records));
+                writer.write("]");
+                writer.write(",");
+                
+
+                // write conditional_profiles section
+                writer.write("\"conditionalProfiles\": [");
+                records = new ArrayList<>();
+                for(var e: ctxToRecords){
+                    BranchData trueBranch = e.b();
+                    BranchData falseBranch = e.c();
+                    // String context = String.join("<", e.a().stream().map(c -> c.name).toList());
+                    String context = ipf.createContext(e.a());
+                    if(trueBranch == null || falseBranch == null){
+                        continue;
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("{");
+                    sb.append("\"ctx\":");
+                    sb.append("\""+context+"\"");
+                    sb.append(",");
+                    sb.append("\"records\":[");
+                    sb.append(String.format("%d,%d,%d,", trueBranch.bci, trueBranch.id, trueBranch.executions));
+                    sb.append(String.format("%d,%d,%d", falseBranch.bci, falseBranch.id, falseBranch.executions));
+                    sb.append("]");
+                    sb.append("}");
+                    records.add(sb.toString());
+                }
+                writer.write(String.join(",", records));
+                writer.write("]");
+                writer.write("}");
         } catch (IOException e) {
             e.printStackTrace();
         }
