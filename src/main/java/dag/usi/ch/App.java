@@ -627,15 +627,13 @@ public class App {
         IProfBuilder ipf = new IProfBuilder();
 
         for(CondInfo ci: condInfos){
-            List<ContextComponent> context = null;
-            BranchData trueBranch = null;
-            BranchData falseBranch = null;
+            List<BranchData> trueBranches = new ArrayList<>();
+            List<BranchData> falseBranches = new ArrayList<>();
             // this is useful for debugging.
-            long executions = 0;
                 
             var ctxAndExecutions = getContext(pcToMatch, pcToCount, ci, ipf);
-            context = ctxAndExecutions.first();
-            executions = ctxAndExecutions.second();
+            List<ContextComponent> context = ctxAndExecutions.first();
+            long executions = ctxAndExecutions.second();
             // matches the condition being executed
             for (var e : pcToMatch.entrySet()) {
                 String sp = e.getValue().match().sm().sourcePosition().getFirst();
@@ -649,14 +647,15 @@ public class App {
                     // comes from the true block this should be correct.
                     if(bci >= ci.truebci() && bci < ci.falsebci()){
                         long count = pcToCount.get(e.getKey()).count();
-                        if(count > executions){
-                            continue;
-                        }
-                        if(trueBranch == null){
-                            trueBranch = new BranchData(bci, 0, count);
-                        } else if(trueBranch.executions() < count){
-                            trueBranch = new BranchData(bci, 0, count);
-                        }
+                        trueBranches.add(new BranchData(bci, 0, count));
+                        // if(count > executions){
+                        //     continue;
+                        // }
+                        // if(trueBranch == null){
+                        //     trueBranch = new BranchData(bci, 0, count);
+                        // } else if(trueBranch.executions() < count){
+                        //     trueBranch = new BranchData(bci, 0, count);
+                        // }
                         continue;
                     }
                 }
@@ -670,15 +669,16 @@ public class App {
                     int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
                     if(bci == ci.falsebci()){
                         long count = pcToCount.get(e.getKey()).count();
-                        if(count > executions){
-                            continue;
-                        }
-//                        falseBranch = new BranchData(bci, 1, count);
-                        if(falseBranch == null){
-                            falseBranch = new BranchData(bci, 0, count);
-                        } else if(falseBranch.executions() < count){
-                            falseBranch = new BranchData(bci, 0, count);
-                        }
+                        falseBranches.add(new BranchData(bci, 0, count));
+//                         if(count > executions){
+//                             continue;
+//                         }
+// //                        falseBranch = new BranchData(bci, 1, count);
+//                         if(falseBranch == null){
+//                             falseBranch = new BranchData(bci, 0, count);
+//                         } else if(falseBranch.executions() < count){
+//                             falseBranch = new BranchData(bci, 0, count);
+//                         }
                     }
                     // break;
                 }
@@ -687,7 +687,24 @@ public class App {
             if(context==null){
                 continue;
             }
-            assert executions+1 == trueBranch.executions()+falseBranch.executions();
+            // assert executions+1 == trueBranch.executions()+falseBranch.executions();
+            trueBranches = trueBranches.stream().filter(e -> e.executions()<= executions).toList();
+            falseBranches = falseBranches.stream().filter(e -> e.executions()<= executions).toList();
+            long bestDiff = Long.MAX_VALUE;
+            BranchData trueBranch = null;
+            BranchData falseBranch = null;
+            for (BranchData ba : trueBranches) {
+                for (BranchData bb : falseBranches) {
+                    long sum = ba.executions() + bb.executions();
+                    long diff = Math.abs(executions- sum);
+
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        trueBranch = ba;
+                        falseBranch = bb;
+                    }
+                }
+            }
             ctxToRecords.add(new Triplet<>(context, trueBranch, falseBranch));
         }
 
