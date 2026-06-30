@@ -14,12 +14,12 @@ mkdir -p "$NAME"_reduced
 
 # create native image
 BUILD_LOG=$(mktemp)
-#  -jar target/Control-1.0-SNAPSHOT.jar
+  # -jar target/Control-1.0-SNAPSHOT.jar
   # -H:Dump=:4 -H:MethodFilter="Main.*" \
+  # -H:Dump=:4 \
 "$JAVA_HOME"/bin/native-image \
   -g \
   -H:+DebugCodeInfoUseSourceMappings \
-  -H:Dump=:4 \
   $NATIVE_IMAGE_INPUT | tee "$BUILD_LOG"
 
 # Extract the produced binary name
@@ -44,6 +44,11 @@ perf script --insn-trace  --no-demangle \
   --fields ip,sym,symoff \
    -i "$NAME"/perf.data > "$NAME"/perf_clean
 
-# javap -v -p target.classes.dag.usi.ch.Main > "$NAME"/decompiled.txt
 
 cp "$NAME"/* "$NAME"_reduced
+
+java -Xms512m -Xmx20g -classpath target/classes dag.usi.ch.App \
+     --objdump="$NAME"_reduced/disassembly.S \
+     --sm="$NAME"_reduced/source_mapping.txt \
+     --perf="$NAME"_reduced/ \
+     --condition="$NAME"_reduced/condition_mapping.txt
