@@ -3,71 +3,51 @@ def main():
     output_file = "/home/jacob/PHD/graal-ws/experiment/Control/exp_f2/source_mapping_l.txt"
 
 
-
-    def convert_numbers_to_hex(line):
-        parts = line.strip().split()
-
-        if not parts:
-            return line
-
-        converted = []
+    def convert_ops_to_hex(op_field):
+        parts = op_field.strip().split()
+        out = []
 
         for p in parts:
             try:
                 n = int(p)
                 if n < 0:
-                    converted.append(f"{n+256:02x}")
+                    out.append(f"{n+256:02x}")
                 else:
-                    converted.append(f"{n:02x}")
+                    out.append(f"{n:02x}")
             except ValueError:
-                return line
+                return op_field  # fallback if malformed
 
-        return " ".join(converted) + "\n"
+        return " ".join(out)
 
 
-    with open(input_file, "r") as f:
-        lines = f.readlines()
+    def process_line(line):
+        line = line.strip()
+        if not line:
+            return line + "\n"
 
-    out = []
-    i = 0
-    n = len(lines)
+        parts = line.split(",", -1)
+        if len(parts) < 4:
+            return line + "\n"
 
-    while i < n:
-        line = lines[i]
+        # range stays unchanged
+        range_part = parts[0].strip()
 
-        if line.startswith("Source mapping:"):
-            j = i + 1
+        # convert ops
+        ops_part = convert_ops_to_hex(parts[1])
 
-            # skip optional numeric line
-            if j < n and lines[j].strip():
-                maybe_numbers = lines[j].strip().split()
+        # at... parts unchanged (may be multiple)
+        at_parts = parts[2:-1]
+        at_joined = ",".join(p.strip() for p in at_parts if p.strip())
 
-                is_numbers = True
-                for x in maybe_numbers:
-                    try:
-                        int(x)
-                    except ValueError:
-                        is_numbers = False
-                        break
+        # method
+        method_part = parts[-1].strip()
 
-                if is_numbers:
-                    j += 1
+        return f"{range_part},{ops_part},{at_joined},{method_part}\n"
 
-            # remove block if immediately followed by empty line
-            if j < n and lines[j].strip() == "":
-                while j < n and lines[j].strip() == "":
-                    j += 1
-                i = j
-                continue
 
-        # convert numeric-only lines to hex
-        out.append(convert_numbers_to_hex(line))
-
-        i += 1
-
-    with open(output_file, "w") as f:
-        f.writelines(out)
-    return
+    with open(input_file, "r") as f, open(output_file, "w") as out:
+        for line in f:
+            out.write(process_line(line))
 
 
 if __name__ == "__main__":

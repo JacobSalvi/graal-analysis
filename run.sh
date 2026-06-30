@@ -12,7 +12,7 @@ shift
 
 PROGRAM_ARGUMENTS=("$@")
 
-cd "/home/jacob/PHD/dacapobench-23.11-MR2-chopin/avrora_dir/" || exit 0
+#cd "/home/jacob/PHD/dacapobench-23.11-MR2-chopin/avrora_dir/" || exit 0
 
 # grant sudo before the loop
 sudo -v
@@ -23,7 +23,7 @@ echo $PROGRAM_ARGUMENTS
 PID=$!
 
 TIMEOUT=0.1s
-SLEEP_AMOUNT=0.5
+SLEEP_AMOUNT=0.1
 
 i=0
 # sudo timeout --signal=INT --kill-after=15s 3s perf record -e intel_pt// -p 1128192 -o perf.data
