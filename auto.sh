@@ -52,3 +52,15 @@ java -Xms512m -Xmx20g -classpath target/classes dag.usi.ch.App \
      --sm="$NAME"_reduced/source_mapping.txt \
      --perf="$NAME"_reduced/ \
      --condition="$NAME"_reduced/condition_mapping.txt
+
+# Baseline native image
+GRAALVMEA_WORKDIR=graalvm-ea
+mkdir $GRAALVMEA_WORKDIR
+cd $GRAALVMEA_WORKDIR
+BUILD_LOG_EA=$(mktemp)
+"$GRAALVMEA_HOME"/bin/native-image -g --pgo-instrument $NATIVE_IMAGE_INPUT | tee "$BUILD_LOG_EA"
+BIN_NAME_EA=$(grep "Finished generating" "$BUILD_LOG_EA" | sed -E "s/.*'([^']+)'.*/\1/")
+"./$BIN_NAME_EA" $PROGRAM_ARGUMENTS
+cd ..
+
+python3 compare.py profile.iprof "$GRAALVMEA_WORKDIR"/default.iprof
