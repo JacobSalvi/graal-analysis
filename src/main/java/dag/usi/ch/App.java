@@ -307,7 +307,6 @@ public class App {
 //        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
         AbstractPerfStream perfStream = new PerfFileStream(perfFolder, res.b());
         Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, methodToMatches, res.c());
-        System.out.println("\n");
         System.out.println("Extracted perf data");
         List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
         System.out.println("Loaded condition mapping");
@@ -488,9 +487,6 @@ public class App {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE)) {
 
-            writer.write("Mappings:");
-            writer.newLine();
-
             for (var e : pcToMatch.entrySet()) {
                 for (CondInfo ci : condInfos) {
                     String sp = e.getValue().match().sm().sourcePosition().getFirst();
@@ -669,7 +665,7 @@ public class App {
                     int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
                     if(bci == ci.falsebci()){
                         long count = pcToCount.get(e.getKey()).count();
-                        falseBranches.add(new BranchData(bci, 0, count));
+                        falseBranches.add(new BranchData(bci, 1, count));
 //                         if(count > executions){
 //                             continue;
 //                         }

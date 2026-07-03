@@ -3,13 +3,14 @@ import argparse
 import csv
 from collections import defaultdict
 from typing import Dict
+from pathlib import Path
 
 
-def load_iprof(path):
+def load_iprof(path: Path) -> Dict:
     with open(path) as f:
         return json.load(f)
 
-def build_method_map(iprof):
+def build_method_map(iprof: Dict) -> Dict:
     type_map = {t["id"]: t["name"] for t in iprof["types"]}
     method_map = {}
     for m in iprof["methods"]:
@@ -82,7 +83,7 @@ def reconciliation_keys(bci_to_ratio_a: Dict[str, float], bci_to_ratio_b: Dict[s
 
     return
 
-def compare_ratios(ratios_perf, ratios_graalvm):
+def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
     """
     Compare ratios for matching (ctx, bci).
     Returns list of:
@@ -92,9 +93,9 @@ def compare_ratios(ratios_perf, ratios_graalvm):
     keys = set(ratios_perf.keys())
     out = []
 
-    with open("keysA", "w") as f:
+    with open(output_folder.joinpath("keys_perf"), "w") as f:
         f.writelines([f"{e}\n" for e in ratios_perf.keys()])
-    with open("keysB","w") as f:
+    with open(output_folder.joinpath("keys_graalvm"),"w") as f:
         f.writelines([f"{e}\n" for e in ratios_graalvm.keys()])
 
     for key in keys:
@@ -146,20 +147,25 @@ def compare_ratios(ratios_perf, ratios_graalvm):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare conditional profiles between two iprofs.")
-    parser.add_argument("iprofA", help="First iprof file")
-    parser.add_argument("iprofB", help="Second iprof file")
+    parser.add_argument("iprof_perf", help="First iprof file")
+    parser.add_argument("iprof_graalvm", help="Second iprof file")
     parser.add_argument("--threshold", type=float, default=0.01,
                         help="Minimum difference score to include in CSV output")
-    parser.add_argument("--csv", default="output.csv",
-                        help="Output CSV file path")
+    parser.add_argument("--output_folder", default=Path("Output"), type=Path,
+                        help="Output folder")
 
     args = parser.parse_args()
 
-    iprof_perf = load_iprof(args.iprofA)
-    iprof_graalvm = load_iprof(args.iprofB)
+    iprof_perf: Dict = load_iprof(args.iprof_perf)
+    iprof_graalvm: Dict = load_iprof(args.iprof_graalvm)
 
-    method_map_perf = build_method_map(iprof_perf)
-    method_map_graalvm = build_method_map(iprof_graalvm)
+    output_folder: Path = args.output_folder
+    if not output_folder.is_dir():
+        output_folder.mkdir()
+    output_csv: Path = output_folder.joinpath("output.csv")
+
+    method_map_perf: Dict = build_method_map(iprof_perf)
+    method_map_graalvm: Dict = build_method_map(iprof_graalvm)
 
     cond_perf = extract_conditional(iprof_perf, method_map_perf)
     cond_graalvm = extract_conditional(iprof_graalvm, method_map_graalvm)
@@ -167,10 +173,10 @@ def main():
     ratios_perf = compute_ratios(cond_perf)
     ratios_graalvm = compute_ratios(cond_graalvm)
 
-    diffs = compare_ratios(ratios_perf, ratios_graalvm)
+    diffs = compare_ratios(ratios_perf, ratios_graalvm, output_folder)
 
     # Write CSV
-    with open(args.csv, "w", newline="") as f:
+    with open(output_csv, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["difference", "ctx", "bcitrue", "bcifalse", "count_true_a", "count_false_a", "count_true_b", "count_false_b"])
 
@@ -178,7 +184,7 @@ def main():
             # if diff >= args.threshold:
             writer.writerow([diff, ctx, bci, bcifalse, at, af, bt, bf])
 
-    print(f"Done. Wrote results with diff >= {args.threshold} to {args.csv}")
+    print(f"Done. Wrote results with diff >= {args.threshold} to {output_csv}")
 
 if __name__ == "__main__":
     main()

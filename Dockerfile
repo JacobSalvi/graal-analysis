@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 RUN apt-get update && \
     apt-get install -y git python3 binutils build-essential \
-     maven zlib1g-dev linux-tools-common linux-tools-generic 
+     maven zlib1g-dev linux-tools-common linux-tools-generic wget 
 
 # PERF
 RUN apt-get update && apt-get install -y \
@@ -20,13 +20,20 @@ RUN git clone --depth 1 https://github.com/torvalds/linux.git && \
 WORKDIR /workspace
 
 RUN git clone https://github.com/JacobSalvi/graal-analysis.git
+
+# graalvm-ea
+RUN wget https://github.com/graalvm/oracle-graalvm-ea-builds/releases/download/jdk-25e1-25.0.3-ea.31/graalvm-jdk-25e1-25.0.3-ea.31_linux-x64_bin.tar.gz
+RUN tar -xvf graalvm-jdk-25e1-25.0.3-ea.31_linux-x64_bin.tar.gz
+ENV GRAALVMEA_HOME=/workspace/graalvm-25.1.0-dev+9.1/
+
+# MX
 RUN git clone https://github.com/graalvm/mx.git
-RUN git clone https://github.com/JacobSalvi/graal.git && cd graal && git switch feature/perf-match 
-
 ENV PATH="/workspace/mx:${PATH}"
-
 RUN mx -y fetch-jdk default
 
+# GRAAL
+RUN git clone https://github.com/JacobSalvi/graal.git && cd graal && git switch feature/perf-match 
+RUN sed -i '1767d' /workspace/graal/substratevm/src/com.oracle.svm.driver/src/com/oracle/svm/driver/NativeImage.java
 RUN cd graal/substratevm && mx build
 
 COPY ./Control Control
