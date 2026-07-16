@@ -91,7 +91,7 @@ public class PerfFileStream extends AbstractPerfStream {
 
         Integer nameId = methodNameToId.get(symbol);
         if (nameId == null) {
-            nameId = 100;
+            nameId = -1;
         }
 
         return new PerfInfo(nameId, pc, offset);

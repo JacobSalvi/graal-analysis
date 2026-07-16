@@ -3,7 +3,7 @@ package dag.usi.ch;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
-import java.util.regex.*;
+import java.util.stream.IntStream;
 
 
 public class App {
@@ -74,24 +74,13 @@ public class App {
         return functionToSourceMapping;
     }
 
-    private static List<CondInfo> adjustCondInfos(List<CondInfo> condInfos, List<Block> blocks){
-        for(CondInfo ci: condInfos){
-            for(Block b: blocks){
-                if(ci.cond().getFirst().equals(b.lines.getFirst())){
-                    ci.setP(b.p());
-                    ci.setUf(b.uf());
-                }
-            }
-        }
-        return condInfos;
-    }
-
     private static List<CondInfo> loadConditionMapping(Path conditionMappingFile) throws IOException {
         BufferedReader br = new BufferedReader(new FileReader(conditionMappingFile.toFile()));
         String line;
         List<String> currentCond = new ArrayList<>();
         List<String> currentTrue = new ArrayList<>();
         List<String> currentFalse = new ArrayList<>();
+        Integer currentEndBci = null;
         List<CondInfo> condInfos = new ArrayList<>();
 //        cond: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
 //        true: at sun.util.locale.provider.TimeZoneNameUtility$TimeZoneNameGetter.getName(TimeZoneNameUtility.java:269) [bci: 11]
@@ -103,14 +92,16 @@ public class App {
                     currentCond = new ArrayList<>();
                     currentTrue = new ArrayList<>();
                     currentFalse = new ArrayList<>();
+                    currentEndBci = null;
                     continue;
                 }
                 int bcitrue = Integer.parseInt(currentTrue.getFirst().substring(currentTrue.getFirst().lastIndexOf(" ")+1, currentTrue.getFirst().length()-1));
                 int bcifalse = Integer.parseInt(currentFalse.getFirst().substring(currentFalse.getFirst().lastIndexOf(" ")+1, currentFalse.getFirst().length()-1));
-                condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse, 1, 0));
+                condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse, currentEndBci, 1, 0));
                 currentCond = new ArrayList<>();
                 currentTrue = new ArrayList<>();
                 currentFalse = new ArrayList<>();
+                currentEndBci = null;
                 continue;
             }
             if(line.startsWith("cond: ")){
@@ -122,9 +113,12 @@ public class App {
             } else if(line.startsWith("false: ")){
                 String subString = line.substring(7);
                 Collections.addAll(currentFalse, subString.split(","));
+            } else if(line.startsWith("end: ")){
+                String subString = line.substring(5);
+                currentEndBci = Integer.parseInt(subString);
             }
         }
-        return condInfos;
+        return condInfos.stream().distinct().toList();
     }
 
     private static void usage(){
@@ -185,50 +179,119 @@ public class App {
         Map<String, Integer> methodNameToId = new HashMap<>();
         Map<Integer, List<SourceMapping>> funcToSourceMapping = loadGraalData(graal_output, methodNameToId, 0);
         System.out.printf("Extracting graal data took %d\n", (System.currentTimeMillis()-start)/ 1000);
-
-
         System.out.println("Created method to source mapping");
 
-//        AbstractPerfStream perfStream = new PerfStream(perfFolder, res.b());
-        AbstractPerfStream perfStream = new PerfFileStream(perfFolder, methodNameToId);
-        Pair<Map<Long, PerfMatch>, Map<Long, LongCounter>> p = extracted(perfStream, funcToSourceMapping);
-        System.out.println("\n");
-        System.out.println("Extracted perf data");
         List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
-        System.out.println("Loaded condition mapping");
-//        List<Block> blocks = extractBlock(conditionMappingFile.getParent().resolve("loop_begin.txt"));
-//        condInfos = adjustCondInfos(condInfos, blocks);
-        printResult(condInfos, p.first(), p.second());
-        outputIprof(condInfos, p.first(), p.second());
+        ProgramNodeBuilder pnb = new ProgramNodeBuilder(condInfos);
+        List<ProgramNode> nodes = buildNodeSequence(new PerfFileStream(perfFolder, methodNameToId), funcToSourceMapping, pnb);
+
+        computeNodeCount(nodes);
+        nodesToIprof(pnb.nodes());
+
+    }
+
+    private static void computeNodeCount(List<ProgramNode> nodes){
+        IfNode lastCond = null;
+        nodes = nodes.stream().filter(e->!(e instanceof EmptyNode)).toList();
+        // avoid sequences of repeated values
+        List<ProgramNode> finalNodes = nodes;
+        nodes = IntStream.range(0, nodes.size()).filter(i -> i == 0 || !Objects.equals(finalNodes.get(i), finalNodes.get(i - 1))).mapToObj(nodes::get).toList();
+        for(ProgramNode node: nodes){
+            switch(node){
+                // we are encountering a new condition.
+                case IfNode in -> {
+                    lastCond = in;
+                    in.increment();
+                }
+                case BranchNode bn -> {
+                    assert lastCond != null;
+                    if(lastCond.equals(bn.predecessor())){
+                        bn.increment();
+                    }
+//                     // cond -> trueBranch|falseBranch
+//                     // we can increment the count for the branch
+//                      if(lastBranch == null){
+//                         lastBranch = bn;
+// //                        bn.increment();
+//                     }else{
+//                         // cond -> trueBranch -> falseBranch
+//                         // can only happen if the falseBranch is also the fall-though for the condition
+//                         // do not increment the count for the branch.
+//                         continue;
+//                     }
+                }
+                case EmptyNode ignored -> {}
+                default -> throw new IllegalStateException("Unexpected value: " + node);
+            }
+        }
+        // adjust if counts.
+        // Sometimes a successor node can be moved before the condition
+        // preventing from correctly counting
+        // example: bci 10 loop header -> bci 13 true branch -> bci 32 backedge|false branch
+        // the compilation rewrote it as 13 10 32
+        // then the true branch appears before the condition, and is not counted.
+        for(IfNode n: nodes.stream().filter(e->e instanceof IfNode).map(e->(IfNode)e).toList()){
+            if(n.trueBranch().count()==0){
+                int m = n.children().stream().map(ProgramNode::count).max(Integer::compareTo).orElse(0);
+                n.trueBranch().setCount(m);
+            }
+        }
+
+        // adjust the count of a branch node
+        // a branch node might also be the fall through case for the condition
+        // in such cases it might be counted too many times.
+        // to fix this situation, we ensure that the sum false and true branch should be the same as the condition count
+        for(IfNode n: nodes.stream().filter(e->e instanceof IfNode).map(e->(IfNode)e).toList()){
+            int cond_count = n.count();
+            int true_count = n.trueBranch().count();
+            int false_count= n.falseBranch().count();
+            // cond executed 1000
+            // true_branch executed 1000|999 times
+            // false_branch executed n | 0 < n < 1000 times
+            // then the true_branch count should be adjusted to true count - false count
+            if(true_count == 0 || false_count == 0){
+                continue;
+            }
+            if(Math.abs(cond_count-true_count)<= 1){
+                n.trueBranch().setCount(n.trueBranch().count()-n.falseBranch().count());
+            }
+            // simmetrically the opposite might have happened
+            if(Math.abs(cond_count-false_count)<= 1){
+                n.falseBranch().setCount(n.falseBranch().count()-n.trueBranch().count());
+            }
+        }
     }
 
     record PerfMatch(List<PerfInfo> infos, SourceMapping  match){}
     record Pair<T, R> (T first, R second) {}
 
-    private static Pair<Map<Long,PerfMatch>, Map<Long, LongCounter>> extracted(AbstractPerfStream perfstream, Map<Integer, List<SourceMapping>> methodToSourceMappings) {
 
+    private static List<ProgramNode> buildNodeSequence(AbstractPerfStream perfstream, Map<Integer, List<SourceMapping>> methodToSourceMappings, ProgramNodeBuilder pnb){
+        // Build a List of nodes corresponding to the sequence of nodes executed by the program.
         SourceMapping lastMatch = null;
         Long firstOffset = null;
         List<PerfInfo> infos = new ArrayList<>();
-        Map<Long, PerfMatch> offsetToMatch = new HashMap<>();
-        Map<Long, LongCounter> offsetToCount = new HashMap<>();
-//        Map<PerfInfo, Method> infoToMethod = new HashMap<>();
+        List<ProgramNode> nodes = new ArrayList<>();
+        Map<Long, PerfMatch> pcToNode = new HashMap<>();
+        
         while(perfstream.hasNext()){
             PerfInfo info = perfstream.next();
             if(info == null){
                 continue;
             }
-            // if we already have matched this sequence of instructions
-            // increment the match counter
-            if(offsetToMatch.containsKey(info.pc())){
-                PerfMatch match = offsetToMatch.get(info.pc());
-                offsetToCount.get(info.pc()).increment();
-                // skip the following N lines in the block of instructions
-                perfstream.skip(match.infos().size()-1);
-                // should be correct to set last match to null
-                lastMatch = null;
+            if(info.nameId() == -1){
                 continue;
             }
+            // cache to speed up execution
+            if(pcToNode.containsKey(info.pc())){
+                PerfMatch pm = pcToNode.get(info.pc());
+                ProgramNode pn = pnb.getNode(pm.match(), info.pc());
+                nodes.add(pn);
+                perfstream.skip(pm.infos().size()-1);
+                lastMatch=null;
+                continue;
+            }
+
 
             int offset = Integer.valueOf(info.offset().substring(2), 16);
             SourceMapping match = null;
@@ -243,7 +306,6 @@ public class App {
             // aec9f:	90                   	nop
             // aeca0:	80 f8 04             	cmp    $0x4,%al
             // aeca3:	0f 84 a5 00 00 00    	je     aed4e <__svm_code_section@@Base+0x1ed4e>
-//            Match match = perfLineToMatch.get(info);
             if(match == null){
                 continue;
             }
@@ -255,13 +317,11 @@ public class App {
                 continue;
             }
             if(!match.equals(lastMatch)){
-                PerfMatch m = new PerfMatch(infos, lastMatch);
-                if(offsetToMatch.containsKey(firstOffset)){
-                    offsetToCount.get(firstOffset).increment();
-                }else{
-                    offsetToMatch.put(firstOffset, m);
-                    offsetToCount.put(firstOffset, new LongCounter(1L));
+                ProgramNode pn = pnb.getNode(lastMatch, firstOffset);
+                if(!pcToNode.containsKey(firstOffset)){
+                    pcToNode.put(firstOffset, new PerfMatch(infos, lastMatch));
                 }
+                nodes.add(pn);
                 lastMatch=match;
                 firstOffset = info.pc();
                 infos = new ArrayList<>();
@@ -271,167 +331,19 @@ public class App {
             }
         }
 
-        // last block of perf lines
+        // last block
         if(lastMatch==null){
-            return new Pair<>(offsetToMatch, offsetToCount);
+            return nodes;
         }
-        PerfMatch m = new PerfMatch(infos, lastMatch);
-        if(offsetToMatch.containsKey(firstOffset)){
-            offsetToCount.get(firstOffset).increment();
-        }else{
-            offsetToMatch.put(firstOffset, m);
-            offsetToCount.put(firstOffset, new LongCounter(1L));
+        if(!pcToNode.containsKey(firstOffset)){
+            ProgramNode pn = pnb.getNode(lastMatch, firstOffset);
+            nodes.add(pn);
         }
-        return new Pair<>(offsetToMatch, offsetToCount);
+        return nodes;
     }
 
 
     public record Block(List<String> lines, int p, int uf) {}
-
-
-    public static List<Block> extractBlock(Path file) throws IOException {
-        final Pattern END_PATTERN = Pattern.compile(".*\\[(\\d+),\\s*(\\d+)\\]\\s*$");
-        List<Block> blocks = new ArrayList<>();
-
-
-        try (BufferedReader reader = Files.newBufferedReader(file)) {
-
-            List<String> currentBlock = new ArrayList<>();
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                currentBlock.add(line);
-
-                Matcher matcher = END_PATTERN.matcher(line);
-                if (matcher.matches()) {
-                    int uf = Integer.parseInt(matcher.group(1));
-                    int p = Integer.parseInt(matcher.group(2));
-
-                    blocks.add(
-                        new Block(
-                            new ArrayList<>(currentBlock),
-                            uf,
-                            p
-                        )
-                    );
-
-                    currentBlock.clear();
-                }
-            }
-
-            if (!currentBlock.isEmpty()) {
-                throw new IllegalStateException(
-                        "File ended with an incomplete block");
-            }
-        }
-        return blocks;
-    }
-
-    private static void printResult(List<CondInfo> condInfos,
-                                    Map<Long, PerfMatch> pcToMatch,
-                                    Map<Long, LongCounter> pcToCount) {
-
-        Path path = Paths.get("output.txt");
-
-        try (BufferedWriter writer = Files.newBufferedWriter(
-                path,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE)) {
-
-            writer.write("Mappings:");
-            writer.newLine();
-
-            for (var e : pcToMatch.entrySet()) {
-                for (CondInfo ci : condInfos) {
-                    String sp = e.getValue().match().sourcePosition().getFirst();
-
-                    for (String condSp : ci.cond()) {
-                        if (condSp.equals(sp)) {
-                            long count = pcToCount.get(e.getKey()).count();
-                            // compensate for peeling and unrolling.
-                            count = ci.p()+ci.uf()*count;
-                            writer.write(String.format(
-                                    "Condition from %s executed %d times",
-                                    condSp,
-                                    count
-                            ));
-                            writer.newLine();
-                            break;
-                        }
-                    }
-
-                    for (String trueSp : ci.trueBranch()) {
-                        if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
-                            int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ")+1, sp.length()-1));
-                            // given that the compiler might remove portion of code
-                            // as long as the bytecode that was used to emit the binary code
-                            // comes from the true block this should be correct.
-                            if(bci < ci.truebci() || bci >= ci.falsebci()){
-                                continue;
-                            }
-                            writer.write("Cond:");
-                            writer.newLine();
-                            for (String c : ci.cond()) {
-                                writer.write("  ");
-                                writer.write(c);
-                                writer.newLine();
-                            }
-
-                            writer.write("  ");
-                            writer.write("True branch taken:");
-                            writer.newLine();
-                            for (String c : ci.trueBranch()) {
-                                writer.write("  ");
-                                writer.write(c);
-                                writer.newLine();
-                            }
-
-                            writer.write("  ");
-                            writer.write(String.format(
-                                    "It executed %d times",
-                                    pcToCount.get(e.getKey()).count()
-                            ));
-                            writer.newLine();
-                            break;
-                        }
-                    }
-
-                    for (String falseSp : ci.falseBranch()) {
-                        if (falseSp.equals(sp)) {
-                            writer.write("Cond:");
-                            writer.newLine();
-                            for (String c : ci.cond()) {
-                                writer.write("  ");
-                                writer.write(c);
-                                writer.newLine();
-                            }
-
-                            writer.write("  ");
-                            writer.write("False branch taken:");
-                            writer.newLine();
-                            for (String c : ci.falseBranch()) {
-                                writer.write("  ");
-                                writer.write(c);
-                                writer.newLine();
-                            }
-
-                            writer.write("  ");
-                            writer.write(String.format(
-                                    "It executed %d times",
-                                    pcToCount.get(e.getKey()).count()
-                            ));
-                            writer.newLine();
-                            break;
-                        }
-                    }
-                }
-            }
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
 
     private record BranchData(int bci, int id, long executions){}
@@ -439,84 +351,66 @@ public class App {
 
     record ContextComponent(String name, int bci, String signature){}
 
-    private static Pair<List<ContextComponent>, Long> getContext(Map<Long, PerfMatch> pcToMatch,  Map<Long, LongCounter> pcToCount, CondInfo ci, IProfBuilder ipf){
-        // matches the condition being executed
-        long executions = 0;
-        List<ContextComponent> context = null;
-    
-        for (var e : pcToMatch.entrySet()) {
-            String sp = e.getValue().match().sourcePosition().getFirst();
 
-            for (String condSp : ci.cond()) {
-                if (condSp.equals(sp)) {
-                    long count = pcToCount.get(e.getKey()).count();
-                    // compensate for peeling and unrolling.
-                    count = ci.p()+ci.uf()*count;
-                    executions = count;
-                    List<ContextComponent> contextComponents = new ArrayList<>();
-                    for (String c : ci.cond()) {
-                        String cName = c.substring(0, c.indexOf(" ["));
-                        int bciConditional = Integer.parseInt(c.substring(c.lastIndexOf(" ")+1, c.length()-1));
-                        // take this part [([Ljava/lang/String;)V]
-                        String signature = c.split(" ")[1];
-                        signature = signature.substring(1, signature.length()-1);
-                        ipf.addTypes(signature);
-                        contextComponents.add(new ContextComponent(cName, bciConditional, signature));
-                    }
-                    context = contextComponents;
-                    break;
-                }
-            }
+    private static Pair<List<ContextComponent>, Long> getContext(IfNode in, IProfBuilder ipf){
+        // matches the condition being executed
+        long executions;
+        List<ContextComponent> context;
+        CondInfo ci = in.condInfo();
+
+        long count = in.count();
+        // compensate for peeling and unrolling.
+        count = ci.p()+ci.uf()*count;
+        executions = count;
+        List<ContextComponent> contextComponents = new ArrayList<>();
+        for (String c : ci.cond()) {
+            String cName = c.substring(0, c.indexOf(" ["));
+            int bciConditional = Integer.parseInt(c.substring(c.lastIndexOf(" ")+1, c.length()-1));
+            // take this part [([Ljava/lang/String;)V]
+            String signature = c.split(" ")[1];
+            signature = signature.substring(1, signature.length()-1);
+            ipf.addTypes(signature);
+            contextComponents.add(new ContextComponent(cName, bciConditional, signature));
         }
+        context = contextComponents;
         return new Pair<>(context, executions);
     }
-
-    private static void outputIprof(List<CondInfo> condInfos,
-                                    Map<Long, PerfMatch> pcToMatch,
-                                    Map<Long, LongCounter> pcToCount) {
+    
+    private static void nodesToIprof(List<ProgramNode> nodes) {
         List<Triplet<List<ContextComponent>, BranchData, BranchData>> ctxToRecords = new ArrayList<>();
         IProfBuilder ipf = new IProfBuilder();
-
-        for(CondInfo ci: condInfos){
+        for(ProgramNode pn: nodes){
+            List<ContextComponent> context;
             List<BranchData> trueBranches = new ArrayList<>();
             List<BranchData> falseBranches = new ArrayList<>();
-            // this is useful for debugging.
-                
-            var ctxAndExecutions = getContext(pcToMatch, pcToCount, ci, ipf);
-            List<ContextComponent> context = ctxAndExecutions.first();
-            long executions = ctxAndExecutions.second();
-            // matches the condition being executed
-            for (var e : pcToMatch.entrySet()) {
-                String sp = e.getValue().match().sourcePosition().getFirst();
-                // matches a true successor being executed
-                String trueSp = ci.trueBranch().getFirst();
-                int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
-                if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
-                    // given that the compiler might remove portion of code
-                    // as long as the bytecode that was used to emit the binary code
-                    // comes from the true block this should be correct.
-                    if(bci >= ci.truebci() && bci < ci.falsebci()){
-                        long count = pcToCount.get(e.getKey()).count();
-                        trueBranches.add(new BranchData(bci, 0, count));
-                        continue;
-                    }
+            long executions;
+            switch(pn){
+                case IfNode in -> {
+                    var ctxAndExecutions = getContext(in, ipf);
+                    context = ctxAndExecutions.first();
+                    executions = ctxAndExecutions.second();
+                    ProgramNode trueBranchNode = in.trueBranch();
+                    ProgramNode falseNode = in.falseBranch();
+                    String trueSp = trueBranchNode.stack().getFirst();
+                    int bci = Integer.parseInt(trueSp.substring(trueSp.lastIndexOf(" ") + 1, trueSp.length() - 1));
+                    trueBranches.add(new BranchData(bci, 0, trueBranchNode.count()));
+                    String falseSp= falseNode.stack().getFirst();
+                    bci = Integer.parseInt(falseSp.substring(falseSp.lastIndexOf(" ") + 1, falseSp.length() - 1));
+                    falseBranches.add(new BranchData(bci, 1, falseNode.count()));
                 }
-
-                // matches a false successor being executed
-                String falseSp = ci.falseBranch().getFirst();
-                if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
-                    if(bci == ci.falsebci()){
-                        long count = pcToCount.get(e.getKey()).count();
-                        falseBranches.add(new BranchData(bci, 0, count));
-                    }
+                default -> {
+                    continue;
                 }
             }
+            
+            // this is useful for debugging.
+                
             if(context==null){
                 continue;
             }
             // assert executions+1 == trueBranch.executions()+falseBranch.executions();
-            trueBranches = trueBranches.stream().filter(e -> e.executions()<= executions).toList();
-            falseBranches = falseBranches.stream().filter(e -> e.executions()<= executions).toList();
+//            trueBranches = trueBranches.stream().filter(e -> e.executions()<= executions).toList();
+//            falseBranches = falseBranches.stream().filter(e -> e.executions()<= executions).toList();
             long bestDiff = Long.MAX_VALUE;
             BranchData trueBranch = null;
             BranchData falseBranch = null;
@@ -537,7 +431,7 @@ public class App {
 
         List<IProfMethod> iprofMethods = ipf.createMethods(ctxToRecords.stream().map(Triplet::a).toList());
 
-        Path path = Paths.get("profile.iprof");
+        Path path = Paths.get("profile_2.iprof");
         //  {
         //   "ctx": "28755:10<28754:19",
         //   "records": [

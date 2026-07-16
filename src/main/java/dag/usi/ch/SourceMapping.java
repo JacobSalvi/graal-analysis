@@ -2,7 +2,7 @@ package dag.usi.ch;
 
 import java.util.List;
 
-record SourceMapping(
+public record SourceMapping(
         List<String> bytes,
         List<String> sourcePosition,
         int functionNameId,
