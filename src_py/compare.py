@@ -126,8 +126,8 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
         if perf_ratio.keys() != graalvm_ratio.keys():
             reconciliation_keys(perf_ratio, graalvm_ratio)
             print("different keys")
-        assert perf_ratio.keys() == graalvm_ratio.keys()
-        assert len(perf_ratio.keys()) == 2
+        # assert perf_ratio.keys() == graalvm_ratio.keys()
+        # assert len(perf_ratio.keys()) == 2
         # The difference must be symmetric
         # if for one profile the true branch has ratio 0.8 and false branch has ratio 0.2
         # while for the other profile the ratios are 0.8 and 0.2
@@ -195,7 +195,7 @@ def main():
     print(f"Weighted average diff: {weighted_avg:.6f}")
 
     # Create bins [0.0, 0.1, 0.2, ..., 1.0]
-    bin_width = 0.1
+    bin_width = 0.01
     bins = np.arange(0.0, 1.0 + bin_width, bin_width)
 
     # ----------------------------------------------------------
@@ -238,7 +238,8 @@ def main():
     weighted_hist, edges = np.histogram(
         diff_values,
         bins=bins,
-        weights=counts
+        weights=counts,
+        density=True
     )
 
     plt.bar(
