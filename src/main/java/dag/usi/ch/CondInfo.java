@@ -6,7 +6,9 @@ public class CondInfo {
  private final List<String> cond;
  private final List<String> trueBranch;
  private final int truebci;
+ private final int truebciend;
  private final int falsebci;
+ private final int falsebciend;
  private final List<String> falseBranch;
  private final Integer endbci;
  private int uf;
@@ -21,6 +23,20 @@ public class CondInfo {
   this.endbci = end;
   this.uf = uf;
   this.p = p;
+  int condbci = Integer.parseInt(cond.getFirst().substring(cond.getFirst().lastIndexOf(" ") + 1, cond.getFirst().length() - 1));
+  // special case: Sometimes the jvm emits a conditional for certain bytecodes
+  // for example: getfield get some sort of null check. But in the source code there is no cond.
+  if(condbci == truebci && condbci == falsebci){
+   this.truebciend = this.falsebciend = condbci;
+   return;
+  }
+  if(truebci <= falsebci){
+    this.truebciend = falsebci;
+    this.falsebciend = end == null ? this.falsebci: end;
+  }else{
+    this.truebciend = end == null? this.truebci: end;
+    this.falsebciend = truebci;
+  }
  }
 
  public List<String> cond() {
@@ -59,10 +75,17 @@ public class CondInfo {
   this.p=p;
  }
 
- public Integer endbci(){
+ public Integer _r(){
   return endbci;
  }
 
+ public int truebciend(){
+  return this.truebciend;
+ }
+
+ public int falsebciend(){
+  return this.falsebciend;
+ }
 
  public boolean equals(Object o) {
   if (this == o) return true;

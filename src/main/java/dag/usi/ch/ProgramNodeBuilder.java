@@ -156,20 +156,19 @@ public class ProgramNodeBuilder {
         // given that the compiler might remove portion of code
         // as long as the bytecode that was used to emit the binary code
         // comes from the true block, this should be correct.
-        if (bci < ci.truebci() || bci >= ci.falsebci()) {
-          continue;
+        if(bci >= ci.truebci() && bci <= ci.truebciend()){
+          return branchnode;
         }
-        return branchnode;
+//        if (bci < ci.truebci() || bci >= ci.falsebci()) {
+//          continue;
+//        }
+//        return branchnode;
       }
     }
     // case 3: we match with the false branch
     String falseSp = ci.falseBranch().getFirst();
     if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
-      if(ci.endbci() == null){
-        if(bci >= ci.falsebci()){
-          return ifNode.falseBranch();
-        }
-      }else if(bci >= ci.falsebci() && bci <= ci.endbci()){
+       if(bci >= ci.falsebci() && bci <= ci.falsebciend()){
         return ifNode.falseBranch();
       }
     }
@@ -180,66 +179,25 @@ public class ProgramNodeBuilder {
     if(pcToNode.containsKey(pc)){
       return pcToNode.get(pc);
     }
-    for (ProgramNode node : nodes) {
-      switch(node){
-        case IfNode ifnode ->{
+    List<IfNode> ifNodes = nodes.stream().filter(node -> node instanceof IfNode).map(node -> (IfNode) node).toList();
+    List<BranchNode> branchNodes = nodes.stream().filter(node -> node instanceof BranchNode).map(node -> (BranchNode) node).toList();
+    for (IfNode ifnode : ifNodes) {
           String sp = match.sourcePosition().getFirst();
           CondInfo ci = ifnode.condInfo();
           // case 1: we match the condition itself.
           for (String condSp : ci.cond()) {
             if (condSp.equals(sp)) {
-              pcToNode.put(pc, node);
-              return node;
+              pcToNode.put(pc, ifnode);
+              return ifnode;
             }
           }
+    }
+    for (BranchNode branchnode : branchNodes) {
+        ProgramNode candidate = findEncapsulatingConditional(branchnode.predecessor(), match);
+        if (candidate != null) {
+          pcToNode.put(pc, candidate);
+          return candidate;
         }
-        case BranchNode branchnode ->{
-          ProgramNode candidate = findEncapsulatingConditional(branchnode.predecessor(), match);
-          if (candidate != null) {
-            pcToNode.put(pc, candidate);
-            return candidate;
-          }
-
-
-//          // case 2: we match the true branch of the condition
-//          CondInfo ci = branchnode.predecessor().condInfo();
-//          String sp = match.sourcePosition().getFirst();
-//          int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
-//          for (String trueSp : ci.trueBranch()) {
-//            if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
-//              // given that the compiler might remove portion of code
-//              // as long as the bytecode that was used to emit the binary code
-//              // comes from the true block this should be correct.
-//              if (bci < ci.truebci() || bci >= ci.falsebci()) {
-//                continue;
-//              }
-//              // We matched the true branch of the conditional but,
-//              // there could be a nested conditional that matches better
-//              ProgramNode candidate = findEncapsulatingConditional(branchnode.predecessor(), match, pc);
-//              if(candidate != null){
-//                return candidate;
-//              }
-//
-//              pcToNode.put(pc, branchnode.predecessor().trueBranch());
-//              return node;
-//            }
-//          }
-//
-//          // case 3: we match the false branch of the condition
-//          String falseSp = ci.falseBranch().getFirst();
-//          if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
-//            if(bci == ci.falsebci()){
-//              ProgramNode candidate = findEncapsulatingConditional(branchnode.predecessor(), match, pc);
-//              if(candidate != null){
-//                return candidate;
-//              }
-//              pcToNode.put(pc, branchnode.predecessor().falseBranch());
-//              return node;
-//            }
-//          }
-        }
-        default -> throw new IllegalStateException("Unexpected value: " + node);
-      }
     }
     // case 4: we don't match any of the conditions
     // there was a node source position, but we couldn't match to a conditional

@@ -109,7 +109,7 @@ public class IProfBuilder {
       if(type.contains("L")){
         type = type.replace("/", ".");
       }
-      if (arr_size != 0 && type.startsWith("L")) {
+      if (arr_size == 0 && type.startsWith("L")) {
         type = type.substring(1, type.length() - 1);
       }
 

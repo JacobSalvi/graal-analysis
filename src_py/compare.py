@@ -105,6 +105,18 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
         perf_total, perf_ratio = ratios_perf.get(key)
         perf_ratio = {k: v/ perf_total for k,v in perf_ratio.items()}
         graalvm_total, graalvm_ratio = ratios_graalvm.get(key) if ratios_graalvm.get(key) != None else (None, None)
+        if ratios_graalvm.get(key) == None:
+            candidates = [k for k in ratios_graalvm if key in k]
+            if candidates:
+                graalvm_total = 0
+                graalvm_ratio = defaultdict(int)
+                for k in candidates:
+                    temp_total, temp_ratio = ratios_graalvm.get(k)
+                    graalvm_total += temp_total
+                    for k, v in temp_ratio.items():
+                        graalvm_ratio[k] += v
+
+            pass
         if graalvm_ratio != None:
             graalvm_ratio = {k: v/ graalvm_total for k,v in graalvm_ratio.items()}
 
@@ -128,6 +140,12 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
             print("different keys")
         # assert perf_ratio.keys() == graalvm_ratio.keys()
         # assert len(perf_ratio.keys()) == 2
+
+        if len(perf_ratio) == 1 or len(graalvm_ratio) == 1:
+            for k, v in perf_ratio.items():
+                graalvm_ratio.setdefault(k, v)
+            for k, v in graalvm_ratio.items():
+                perf_ratio.setdefault(k, v)
         # The difference must be symmetric
         # if for one profile the true branch has ratio 0.8 and false branch has ratio 0.2
         # while for the other profile the ratios are 0.8 and 0.2
@@ -138,18 +156,33 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
 
         items_perf = sorted(perf_ratio.items())
         items_graalvm = sorted(graalvm_ratio.items())
+        if len(items_graalvm) > 2:
+            continue
 
-        out.append((
-            perf_total,
-            diff,
-            key,
-            items_perf[0][0],
-            items_perf[1][0],
-            items_perf[0][1],
-            items_perf[1][1],
-            items_graalvm[0][1],
-            items_graalvm[1][1],
-        ))
+        if len(items_perf) == 1:
+            out.append((
+                perf_total,
+                diff,
+                key,
+                items_perf[0][0],
+                None,
+                items_perf[0][1],
+                None,
+                items_graalvm[0][1],
+                None,
+            ))
+        else:
+            out.append((
+                perf_total,
+                diff,
+                key,
+                items_perf[0][0],
+                items_perf[1][0],
+                items_perf[0][1],
+                items_perf[1][1],
+                items_graalvm[0][1],
+                items_graalvm[1][1],
+            ))
 
     return sorted(out, key=lambda x: x[0])
 
