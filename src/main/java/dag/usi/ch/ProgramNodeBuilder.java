@@ -55,10 +55,22 @@ public class ProgramNodeBuilder {
           continue;
         }
 
+        if(candidate.condInfo().getLineNumber() >= child.condInfo().getLineNumber()){
+          continue;
+        }
+
         CondInfo candidateCi = candidate.condInfo();
-        boolean contains =
-                candidateCi.truebci() <= childCi.truebci()
-                        && candidateCi.falsebci() >= childCi.falsebci();
+        int childCondBci = childCi.getCondBci();
+        int candidateCondBci = candidateCi.getCondBci();
+        if(candidateCondBci > childCondBci){
+          continue;
+        }
+
+        boolean contains = (candidateCi.truebci() <= childCondBci && childCondBci < candidateCi.truebciend()) ||
+                (candidateCi.falsebci()<= childCondBci && childCondBci < candidateCi.falsebciend());
+//        boolean contains =
+//                candidateCi.truebci() <= childCi.truebci()
+//                        && candidateCi.falsebci() >= childCi.falsebci();
         if (!contains) {
           continue;
         }

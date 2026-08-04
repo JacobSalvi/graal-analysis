@@ -97,6 +97,17 @@ public class App {
                 }
                 int bcitrue = Integer.parseInt(currentTrue.getFirst().substring(currentTrue.getFirst().lastIndexOf(" ")+1, currentTrue.getFirst().length()-1));
                 int bcifalse = Integer.parseInt(currentFalse.getFirst().substring(currentFalse.getFirst().lastIndexOf(" ")+1, currentFalse.getFirst().length()-1));
+                if(currentCond.size() != currentTrue.size() || currentCond.size() != currentFalse.size()){
+                    System.err.println("Error: condition size does not match true/false size");
+                    System.err.println("Condition: " + currentCond);
+                    System.err.println("True: " + currentTrue);
+                    System.err.println("False: " + currentFalse);
+                    currentCond = new ArrayList<>();
+                    currentTrue = new ArrayList<>();
+                    currentFalse = new ArrayList<>();
+                    currentEndBci = null;
+                    continue;
+                }
                 condInfos.add(new CondInfo(currentCond, currentTrue, bcitrue, bcifalse, currentFalse, currentEndBci, 1, 0));
                 currentCond = new ArrayList<>();
                 currentTrue = new ArrayList<>();

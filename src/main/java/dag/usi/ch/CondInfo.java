@@ -5,6 +5,8 @@ import java.util.Objects;
 public class CondInfo {
  private final List<String> cond;
  private final List<String> trueBranch;
+ private final int lineNumber;
+ private final int condBci;
  private final int truebci;
  private final int truebciend;
  private final int falsebci;
@@ -23,11 +25,12 @@ public class CondInfo {
   this.endbci = end;
   this.uf = uf;
   this.p = p;
-  int condbci = Integer.parseInt(cond.getFirst().substring(cond.getFirst().lastIndexOf(" ") + 1, cond.getFirst().length() - 1));
+  this.condBci = Integer.parseInt(cond.getFirst().substring(cond.getFirst().lastIndexOf(" ") + 1, cond.getFirst().length() - 1));
+  this.lineNumber = Integer.parseInt(cond.getFirst().split(" ")[3].substring(0,cond.getFirst().split(" ")[3].length()-1));
   // special case: Sometimes the jvm emits a conditional for certain bytecodes
   // for example: getfield get some sort of null check. But in the source code there is no cond.
-  if(condbci == truebci && condbci == falsebci){
-   this.truebciend = this.falsebciend = condbci;
+  if(this.condBci == truebci && this.condBci == falsebci){
+   this.truebciend = this.falsebciend = this.condBci;
    return;
   }
   if(truebci <= falsebci){
@@ -104,4 +107,10 @@ public class CondInfo {
   return Objects.hash(cond, trueBranch, truebci, falsebci, falseBranch);
  }
 
+    public int getLineNumber() {
+        return lineNumber;
+    }
+    public int getCondBci() {
+        return condBci;
+    }
 }
