@@ -98,10 +98,10 @@ public class App {
                 int bcitrue = Integer.parseInt(currentTrue.getFirst().substring(currentTrue.getFirst().lastIndexOf(" ")+1, currentTrue.getFirst().length()-1));
                 int bcifalse = Integer.parseInt(currentFalse.getFirst().substring(currentFalse.getFirst().lastIndexOf(" ")+1, currentFalse.getFirst().length()-1));
                 if(currentCond.size() != currentTrue.size() || currentCond.size() != currentFalse.size()){
-                    System.err.println("Error: condition size does not match true/false size");
-                    System.err.println("Condition: " + currentCond);
-                    System.err.println("True: " + currentTrue);
-                    System.err.println("False: " + currentFalse);
+//                    System.err.println("Error: condition size does not match true/false size");
+//                    System.err.println("Condition: " + currentCond);
+//                    System.err.println("True: " + currentTrue);
+//                    System.err.println("False: " + currentFalse);
                     currentCond = new ArrayList<>();
                     currentTrue = new ArrayList<>();
                     currentFalse = new ArrayList<>();
@@ -138,6 +138,7 @@ public class App {
         System.err.println("    --sm, path ");
         System.err.println("    --perf, path ");
         System.err.println("    --condition mapping file, path ");
+        System.err.println("    --mode, trace|sample ");
         System.exit(1);
     }
 
@@ -151,6 +152,7 @@ public class App {
         Path graal_output = null;
         Path perfFolder = null;
         Path conditionMappingFile = null;
+        String mode = "trace";
 
         for (String arg : args) {
             String key = arg.split("=")[0];
@@ -169,6 +171,9 @@ public class App {
                     break;
                 case "--condition":
                     conditionMappingFile = path;
+                    break;
+                case "--mode":
+                    mode = value;
                     break;
                 default:
                     usage();
@@ -194,7 +199,8 @@ public class App {
 
         List<CondInfo> condInfos = loadConditionMapping(conditionMappingFile);
         ProgramNodeBuilder pnb = new ProgramNodeBuilder(condInfos);
-        List<ProgramNode> nodes = buildNodeSequence(new PerfFileStream(perfFolder, methodNameToId), funcToSourceMapping, pnb);
+        AbstractPerfStream perfstream = mode == "trace"? new PerfFileStream(perfFolder, methodNameToId) : new PerfStream(perfFolder, methodNameToId);
+        List<ProgramNode> nodes = buildNodeSequence(perfstream, funcToSourceMapping, pnb);
 
         computeNodeCount(nodes);
         nodesToIprof(pnb.nodes());

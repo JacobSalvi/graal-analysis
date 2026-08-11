@@ -13,19 +13,24 @@ def main():
     args = argparser.parse_args()
     
     benchmark_to_variants = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    last_it_field_name = None
     with open(args.input, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
+        if "last_it_us" in reader.fieldnames:
+            last_it_field_name = "last_it_us"
+        else:
+            last_it_field_name = "last_it_ms"
         for row in reader:
             benchmark_to_variants[row["benchmark"]][row["variant"]]["time_ms"].append(int(row["time_ms"]))
-            benchmark_to_variants[row["benchmark"]][row["variant"]]["last_it_us"].append(int(row["last_it_us"]))
+            benchmark_to_variants[row["benchmark"]][row["variant"]][last_it_field_name].append(int(row[last_it_field_name]))
 
     benchmark_to_variants_to_means = defaultdict(lambda: defaultdict(dict))
     for b, variants in benchmark_to_variants.items():
         for variant, times in variants.items():
             time_ms = times["time_ms"]
-            last_it_us = times["last_it_us"]
+            last_it_us = times[last_it_field_name]
             benchmark_to_variants_to_means[b][variant]["time_ms"] = sum(time_ms) / len(time_ms)
-            benchmark_to_variants_to_means[b][variant]["last_it_us"] = sum(last_it_us) / len(last_it_us)
+            benchmark_to_variants_to_means[b][variant][last_it_field_name] = sum(last_it_us) / len(last_it_us)
 
     # geomean between pgo and merged
     gmean_pgo_merged = geometric_mean([v["pgo"]["time_ms"]/v["merged"]["time_ms"]
@@ -35,10 +40,10 @@ def main():
                                for b, v in benchmark_to_variants_to_means.items()])
 
     # geomean between pgo and merged last iteration
-    gmean_pgo_merged_li = geometric_mean([v["pgo"]["last_it_us"] / v["merged"]["last_it_us"]
+    gmean_pgo_merged_li = geometric_mean([v["pgo"][last_it_field_name] / v["merged"][last_it_field_name]
                                        for b, v in benchmark_to_variants_to_means.items()])
     # geomean between pgo-ex and merged-ex last iteration
-    gmean_pgo_ex_merged_ex_li = geometric_mean([v["pgo-ex"]["last_it_us"] / v["merged-ex"]["last_it_us"]
+    gmean_pgo_ex_merged_ex_li = geometric_mean([v["pgo-ex"][last_it_field_name] / v["merged-ex"][last_it_field_name]
                                              for b, v in benchmark_to_variants_to_means.items()])
 
     with open(args.means, "w") as f:
@@ -48,15 +53,15 @@ def main():
             line = []
             line.append(benchmark)
             line.append(variants["baseline"]["time_ms"])
-            line.append(variants["baseline"]["last_it_us"])
+            line.append(variants["baseline"][last_it_field_name])
             line.append(variants["pgo"]["time_ms"])
-            line.append(variants["pgo"]["last_it_us"])
+            line.append(variants["pgo"][last_it_field_name])
             line.append(variants["merged"]["time_ms"])
-            line.append(variants["merged"]["last_it_us"])
+            line.append(variants["merged"][last_it_field_name])
             line.append(variants["pgo-ex"]["time_ms"])
-            line.append(variants["pgo-ex"]["last_it_us"])
+            line.append(variants["pgo-ex"][last_it_field_name])
             line.append(variants["merged-ex"]["time_ms"])
-            line.append(variants["merged-ex"]["last_it_us"])
+            line.append(variants["merged-ex"][last_it_field_name])
             line = [str(x) for x in line]
             f.write(f"{",".join(line)}\n")
 

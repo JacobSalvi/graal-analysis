@@ -1,12 +1,19 @@
 package dag.usi.ch;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class CondInfo {
+ private static Map<String, Integer> nameToId = new HashMap<>();
+ private static int currentId = 0;
+
  private final List<String> cond;
  private final List<String> trueBranch;
  private final int lineNumber;
  private final int condBci;
+ private final String methodname;
+ private final int methodid;
  private final int truebci;
  private final int truebciend;
  private final int falsebci;
@@ -27,6 +34,8 @@ public class CondInfo {
   this.p = p;
   this.condBci = Integer.parseInt(cond.getFirst().substring(cond.getFirst().lastIndexOf(" ") + 1, cond.getFirst().length() - 1));
   this.lineNumber = Integer.parseInt(cond.getFirst().split(" ")[3].substring(0,cond.getFirst().split(" ")[3].length()-1));
+  this.methodname = cond.getFirst().substring(0, cond.getFirst().indexOf(" ["));
+  this.methodid = nameToId.getOrDefault(this.methodname, currentId++);
   // special case: Sometimes the jvm emits a conditional for certain bytecodes
   // for example: getfield get some sort of null check. But in the source code there is no cond.
   if(this.condBci == truebci && this.condBci == falsebci){
@@ -112,5 +121,12 @@ public class CondInfo {
     }
     public int getCondBci() {
         return condBci;
+    }
+    public String getMethodname() {
+        return methodname;
+    }
+
+    public int getMethodid() {
+        return methodid;
     }
 }

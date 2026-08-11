@@ -43,15 +43,17 @@ public class ProgramNodeBuilder {
         // the candidate: main2f1 [Main.java 24] [bci: 10], main4main [Main.java 9] [bci: 19]
         // is not.
         int size = child.condInfo().cond().size();
-        if(size != candidate.condInfo().cond().size()){
+        if(size != candidate.condsize){
           continue;
         }
+
+        //        String childMethodName = child.condInfo().cond().getFirst().substring(0, child.condInfo().cond().getFirst().indexOf(" ["));
+        //        String candidateMethodName = candidate.condInfo().cond().getFirst().substring(0, candidate.condInfo().cond().getFirst().indexOf(" ["));
+        if( child.condInfo().getMethodid() != candidate.condInfo().getMethodid()){
+          continue;
+        }
+
         if(!child.condInfo().cond().subList(1, size).equals(candidate.condInfo().cond().subList(1, size))){
-          continue;
-        }
-        String childMethodName = child.condInfo().cond().getFirst().substring(0, child.condInfo().cond().getFirst().indexOf(" ["));
-        String candidateMethodName = candidate.condInfo().cond().getFirst().substring(0, candidate.condInfo().cond().getFirst().indexOf(" ["));
-        if(!childMethodName.equals(candidateMethodName)){
           continue;
         }
 
