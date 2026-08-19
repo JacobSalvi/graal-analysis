@@ -30,7 +30,7 @@ def extract_times_ren(input: Path) -> list[int]:
     with open(input) as f:
         reader = csv.DictReader(f)
         for row in reader:
-            print(row["A"])
+            print(input)
             times = [int(row["duration_ns"]) for row in reader]
     return times
 
