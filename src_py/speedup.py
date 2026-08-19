@@ -29,9 +29,7 @@ def extract_times_ren(input: Path) -> list[int]:
     times = []
     with open(input) as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            print(input)
-            times = [int(row["duration_ns"]) for row in reader]
+        times = [int(row["duration_ns"]) for row in reader]
     return times
 
 
@@ -130,7 +128,7 @@ def main():
             run_number = s[2]
             times = time_extractor(run_file)
             # average over the last 5 iterations to account for warmup
-            avg = sum(times[:-5])/5
+            avg = sum(times[-5:])/ len(times[-5:])
             # get total time
             total_file = [f for f in run_total_files if variant in f.name and f.stem.split("_")[-1] == run_number][0]
             with open(total_file) as f:
