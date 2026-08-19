@@ -2,6 +2,7 @@ import json
 import argparse
 import csv
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from typing import Dict
@@ -188,21 +189,42 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare conditional profiles between two iprofs.")
-    parser.add_argument("iprof_perf", help="First iprof file")
-    parser.add_argument("iprof_graalvm", help="Second iprof file")
+    parser.add_argument("--perf-folder", type=Path, required=True, help="Root folder of the perf profiles", dest="perf_folder")
+    parser.add_argument("--graalvm-folder", type=Path, required=True, help="Root folder of the graalvm profiles", dest="graalvm_folder")
     parser.add_argument("--threshold", type=float, default=0.01,
                         help="Minimum difference score to include in CSV output")
-    parser.add_argument("--output_folder", default=Path("Output"), type=Path,
+    parser.add_argument("--output-folder", dest="output_folder", default=Path("Output"), type=Path,
                         help="Output folder")
 
     args = parser.parse_args()
+    perf_root: Path = args.perf_folder
+    graalvm_root: Path = args.graalvm_folder
+    perf_folders = [f for f in perf_root.iterdir() if f.is_dir()]
+    name_to_avg = {"names": [], "avg": []}
+    for f in perf_folders:
+        name = f.name
+        iprof_perf = f.joinpath(f"{name}.iprof")
+        iprof_graalvm = graalvm_root.joinpath(name).joinpath(f"{name}.iprof")
+        avg = helper(iprof_perf_file=iprof_perf, iprof_graalvm_file=iprof_graalvm, output_root=args.output_folder, name=name)
+        name_to_avg["names"].append(name)
+        name_to_avg["avg"].append(avg)
+    df = pd.DataFrame([name_to_avg["avg"]], columns=name_to_avg["names"])
 
-    iprof_perf: Dict = load_iprof(args.iprof_perf)
-    iprof_graalvm: Dict = load_iprof(args.iprof_graalvm)
+    df.to_latex(
+        args.output_folder.joinpath("latex.tex"),
+        index=False,
+        float_format="%.2f"
+    )
+    return
 
-    output_folder: Path = args.output_folder
+
+def helper(iprof_perf_file: Path, iprof_graalvm_file: Path, output_root: Path, name: str):
+    iprof_perf: Dict = load_iprof(iprof_perf_file)
+    iprof_graalvm: Dict = load_iprof(iprof_graalvm_file)
+
+    output_folder = output_root.joinpath(name)
     if not output_folder.is_dir():
-        output_folder.mkdir()
+        output_folder.mkdir(parents=True)
     output_csv: Path = output_folder.joinpath("output.csv")
 
     method_map_perf: Dict = build_method_map(iprof_perf)
@@ -308,7 +330,7 @@ def main():
             # if diff >= args.threshold:
             writer.writerow([count, diff, ctx, bci, bcifalse, at, af, bt, bf])
 
-    print(f"Done. Wrote results with diff >= {args.threshold} to {output_csv}")
+    return weighted_avg
 
 if __name__ == "__main__":
     main()

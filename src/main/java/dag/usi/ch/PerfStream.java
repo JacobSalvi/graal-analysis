@@ -49,7 +49,7 @@ class PerfStream extends AbstractPerfStream{
                 "-i", file.toString()
         );
 
-        pb.redirectErrorStream(true);
+        pb.redirectErrorStream(false);
         process = pb.start();
 
         reader = new BufferedReader(

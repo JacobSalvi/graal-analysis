@@ -222,6 +222,9 @@ public class App {
                 }
                 case BranchNode bn -> {
                     assert lastCond != null;
+                    if(lastCond == null){
+                        continue;
+                    }
                     if(lastCond.equals(bn.predecessor())){
                         bn.increment();
                     }
@@ -270,11 +273,19 @@ public class App {
                 continue;
             }
             if(Math.abs(cond_count-true_count)<= 1){
-                n.trueBranch().setCount(n.trueBranch().count()-n.falseBranch().count());
+                int countTrueBranch = n.trueBranch().count();
+                int countFalseBranch = n.falseBranch().count();
+                if(countTrueBranch - countFalseBranch > 0){
+                    n.trueBranch().setCount(countTrueBranch-countFalseBranch);
+                }
             }
             // simmetrically the opposite might have happened
             if(Math.abs(cond_count-false_count)<= 1){
-                n.falseBranch().setCount(n.falseBranch().count()-n.trueBranch().count());
+                int countTrueBranch = n.trueBranch().count();
+                int countFalseBranch = n.falseBranch().count();
+                if(countFalseBranch - countTrueBranch > 0){
+                    n.falseBranch().setCount(countFalseBranch-countTrueBranch);
+                }
             }
         }
     }
@@ -312,7 +323,7 @@ public class App {
 
             int offset = Integer.valueOf(info.offset().substring(2), 16);
             SourceMapping match = null;
-            for(SourceMapping sm: methodToSourceMappings.get(info.nameId())){
+            for(SourceMapping sm: methodToSourceMappings.getOrDefault(info.nameId(), new ArrayList<>())){
                 if(sm.beg() == offset){
                     match = sm;
                     break;
