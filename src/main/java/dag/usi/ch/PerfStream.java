@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Random;
 import java.util.stream.Stream;
 
 class PerfStream extends AbstractPerfStream{
@@ -22,12 +23,21 @@ class PerfStream extends AbstractPerfStream{
     private final Map<String, Integer> methodNameToId;
 
     public PerfStream(Path perfFolder, Map<String, Integer> methodNameToId) throws IOException {
+        List<Path> perfFiles;
         try (Stream<Path> stream = Files.list(perfFolder)) {
-            this.perfFiles = stream
+            perfFiles = stream
                     .filter(p -> p.getFileName().toString().endsWith(".data"))
+                    .sorted()
                     .toList();
         }
 
+        // Sample the stream by picking 8 random files from the second half of the execution.
+        this.perfFiles = new Random()
+                .ints(perfFiles.size() / 2, perfFiles.size())
+                .distinct()
+                .limit(8)
+                .mapToObj(perfFiles::get)
+                .toList();
         this.methodNameToId = methodNameToId;
         startNextProcess();
     }
