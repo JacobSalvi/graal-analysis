@@ -105,19 +105,31 @@ def compare_ratios(ratios_perf, ratios_graalvm, output_folder: Path):
     for key in keys:
         perf_total, perf_ratio = ratios_perf.get(key)
         perf_ratio = {k: v/ perf_total for k,v in perf_ratio.items()}
-        graalvm_total, graalvm_ratio = ratios_graalvm.get(key) if ratios_graalvm.get(key) != None else (None, None)
-        if ratios_graalvm.get(key) == None:
-            candidates = [k for k in ratios_graalvm if key in k]
-            if candidates:
-                graalvm_total = 0
-                graalvm_ratio = defaultdict(int)
-                for k in candidates:
-                    temp_total, temp_ratio = ratios_graalvm.get(k)
-                    graalvm_total += temp_total
-                    for k, v in temp_ratio.items():
-                        graalvm_ratio[k] += v
+        # graalvm_total, graalvm_ratio = ratios_graalvm.get(key) if ratios_graalvm.get(key) != None else (None, None)
+        cands = [v for k, v in ratios_graalvm.items() if k.endswith(key) or f"{key}<" in k]
 
-            pass
+        graalvm_total = 0
+        graalvm_ratio = defaultdict(int)
+
+        for count, d in cands:
+            graalvm_total += count
+            for k, v in d.items():
+                graalvm_ratio[k] += v
+        if graalvm_ratio == {}:
+            graalvm_ratio = None
+
+        # if ratios_graalvm.get(key) == None:
+        #     candidates = [k for k in ratios_graalvm if key in k]
+        #     if candidates:
+        #         graalvm_total = 0
+        #         graalvm_ratio = defaultdict(int)
+        #         for k in candidates:
+        #             temp_total, temp_ratio = ratios_graalvm.get(k)
+        #             graalvm_total += temp_total
+        #             for k, v in temp_ratio.items():
+        #                 graalvm_ratio[k] += v
+        #
+        #     pass
         if graalvm_ratio != None:
             graalvm_ratio = {k: v/ graalvm_total for k,v in graalvm_ratio.items()}
 
@@ -328,6 +340,8 @@ def helper(iprof_perf_file: Path, iprof_graalvm_file: Path, output_root: Path, n
 
         for count, diff, ctx, bci, bcifalse, at, af, bt, bf in diffs:
             # if diff >= args.threshold:
+            if diff < 0.0001:
+                diff = 0
             writer.writerow([count, diff, ctx, bci, bcifalse, at, af, bt, bf])
 
     return weighted_avg
