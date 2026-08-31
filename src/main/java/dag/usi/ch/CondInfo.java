@@ -43,11 +43,11 @@ public class CondInfo {
    return;
   }
   if(truebci <= falsebci){
-    this.truebciend = falsebci;
+    this.truebciend = falsebci-1>=truebci? falsebci-1: falsebci;
     this.falsebciend = end == null ? this.falsebci: end;
   }else{
     this.truebciend = end == null? this.truebci: end;
-    this.falsebciend = truebci;
+    this.falsebciend = truebci-1>=falsebci? truebci-1: truebci;
   }
  }
 

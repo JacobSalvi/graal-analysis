@@ -213,32 +213,75 @@ public class App {
         // avoid sequences of repeated values
         List<ProgramNode> finalNodes = nodes;
         nodes = IntStream.range(0, nodes.size()).filter(i -> i == 0 || !Objects.equals(finalNodes.get(i), finalNodes.get(i - 1))).mapToObj(nodes::get).toList();
+        List<BranchNode> nodesSofar = new ArrayList<>();
         for(ProgramNode node: nodes){
             switch(node){
                 // we are encountering a new condition.
                 case IfNode in -> {
+                    if(lastCond == null){
+                        nodesSofar = new ArrayList<>();
+                        lastCond = in;
+                        in.increment();
+                        continue;
+                    }
+                    var realfinal = lastCond;
+                    nodesSofar=nodesSofar.stream().filter(n -> n.predecessor().equals(realfinal)).toList();
+                    // analyze nodes so far
+                    if(nodesSofar.isEmpty()){
+                        // case:
+                        // if LastCond: bci 3
+                        //     ....
+                        // if in: bci 18
+                        //    ....
+                        // we need to update the successor of last cond with the latest bci
+                        String prevCond = lastCond.stack().getFirst().substring(0, lastCond.stack().getFirst().lastIndexOf("["));
+                        String currCond = in.stack().getFirst().substring(0, in.stack().getFirst().lastIndexOf("["));
+                        if(prevCond.equals(currCond)){
+                            if(lastCond.condInfo().truebci() > lastCond.condInfo().falsebci() && in.condInfo().getCondBci() >= lastCond.condInfo().truebci()){
+                                lastCond.trueBranch().increment();
+                            } else if(lastCond.condInfo().truebci() < lastCond.condInfo().falsebci() && in.condInfo().getCondBci() >= lastCond.condInfo().falsebci()){
+                                lastCond.falseBranch().increment();
+                            }
+                        } else{
+                            // case:
+                            // if lastcond:
+                            //     ...
+                            // return
+                            // there was a change in method
+                            // no operation detected after the if,
+                            // likely fell through and method finished
+                            if(lastCond.condInfo().truebci() > lastCond.condInfo().falsebci()){
+                                lastCond.trueBranch().increment();
+                            } else if(lastCond.condInfo().truebci() < lastCond.condInfo().falsebci()){
+                                lastCond.falseBranch().increment();
+                            }
+                        }
+                    } else if(lastCond != null){
+                        // count normally
+                        for(BranchNode bn: nodesSofar){
+                            if(lastCond.equals(bn.predecessor())){
+                                bn.increment();
+                            }
+                        }
+                    }
+
+
+                    // reset nodes so far
+                    nodesSofar = new ArrayList<>();
                     lastCond = in;
                     in.increment();
                 }
                 case BranchNode bn -> {
-                    assert lastCond != null;
-                    if(lastCond == null){
-                        continue;
-                    }
-                    if(lastCond.equals(bn.predecessor())){
-                        bn.increment();
-                    }
-//                     // cond -> trueBranch|falseBranch
-//                     // we can increment the count for the branch
-//                      if(lastBranch == null){
-//                         lastBranch = bn;
-// //                        bn.increment();
-//                     }else{
-//                         // cond -> trueBranch -> falseBranch
-//                         // can only happen if the falseBranch is also the fall-though for the condition
-//                         // do not increment the count for the branch.
-//                         continue;
-//                     }
+                    // add to nodes so far
+                    nodesSofar.add(bn);
+
+//                    assert lastCond != null;
+//                    if(lastCond == null){
+//                        continue;
+//                    }
+//                    if(lastCond.equals(bn.predecessor())){
+//                        bn.increment();
+//                    }
                 }
                 case EmptyNode ignored -> {}
                 default -> throw new IllegalStateException("Unexpected value: " + node);

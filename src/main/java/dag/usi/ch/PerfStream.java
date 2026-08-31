@@ -37,6 +37,7 @@ class PerfStream extends AbstractPerfStream{
                 .distinct()
                 .limit(8)
                 .mapToObj(perfFiles::get)
+                .sorted()
                 .toList();
         this.methodNameToId = methodNameToId;
         startNextProcess();

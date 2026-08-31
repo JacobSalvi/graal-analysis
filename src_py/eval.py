@@ -1,10 +1,11 @@
-from argparse import ArgumentParser
-from pathlib import Path
-from collections import defaultdict
-from statistics import geometric_mean
-import numpy as np
-import matplotlib.pyplot as plt
 import csv
+from argparse import ArgumentParser
+from collections import defaultdict
+from pathlib import Path
+from statistics import geometric_mean
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def extract_times_dacapo(input: Path) -> list[int]:
@@ -59,10 +60,10 @@ def extract_times_awfy(input: Path) -> list[int]:
 def bar_chart(benchmark_to_variants_to_means: dict, output_folder: Path):
 
     benchmarks = list(benchmark_to_variants_to_means.keys())
-    variants = ["pgo", "merged", "pgo-ex", "merged-ex"]
+    variants = ["pgo", "perf"]
 
     def plot_metric(metric, output_file):
-        group_spacing = 1.6
+        group_spacing = 1.6  # > 1 creates space between benchmark groups
         x = np.arange(len(benchmarks)) * group_spacing
 
         width = 0.22
@@ -75,11 +76,10 @@ def bar_chart(benchmark_to_variants_to_means: dict, output_folder: Path):
                 baseline = benchmark_to_variants_to_means[b]["baseline"][metric]
                 current = benchmark_to_variants_to_means[b][variant][metric]
 
-                # relative difference (%)
                 if current == 0 and baseline == 0:
                     values.append(1)
                 else:
-                    values.append(baseline/current)
+                    values.append(baseline / current)
 
             offset = (i - (len(variants) - 1) / 2) * width
             ax.bar(x + offset, values, width, label=variant)
@@ -147,29 +147,25 @@ def main():
             benchmark_to_variants_to_means[b][variant]["total_average"] = total_average
             benchmark_to_variants_to_means[b][variant]["iteration_average"] = average
 
-    # geomean between pgo and merged
-    gmean_pgo_merged = geometric_mean([v["pgo"]["total_average"]/v["merged"]["total_average"]
-                               for b, v in benchmark_to_variants_to_means.items()])
-    # geomean between pgo-ex and merged-ex
-    gmean_pgo_ex_merged_ex = geometric_mean([v["pgo-ex"]["total_average"] / v["merged-ex"]["total_average"]
+    # geomean between pgo and perf
+    geometric_mean([v["baseline"]["iteration_average"] / v["merged"]["iteration_average"] for b, v in
+                    benchmark_to_variants_to_means.items()])
+    gmean_pgo_perf = geometric_mean([v["pgo"]["total_average"]/v["perf"]["total_average"]
                                for b, v in benchmark_to_variants_to_means.items()])
 
-    # geomean between pgo and merged last iteration
-    gmean_pgo_merged_li = geometric_mean([v["pgo"]["iteration_average"] / (v["merged"]["iteration_average"] if v["merged"]["iteration_average"] != 0 else 1)
+    # geomean between pgo and perf last iteration
+    gmean_pgo_perf_li = geometric_mean([v["pgo"]["iteration_average"] / (v["perf"]["iteration_average"] if v["perf"]["iteration_average"] != 0 else 1)
                                        for b, v in benchmark_to_variants_to_means.items()])
-    # geomean between pgo-ex and merged-ex last iteration
-    gmean_pgo_ex_merged_ex_li = geometric_mean([v["pgo-ex"]["iteration_average"] / (v["merged-ex"]["iteration_average"] if v["merged-ex"]["iteration_average"] != 0 else 1)
-                                             for b, v in benchmark_to_variants_to_means.items()])
     # geomean between baseline and pgo
     gmean_baseline_pgo = geometric_mean([v["baseline"]["total_average"] / v["pgo"]["total_average"]
                                                 for b, v in benchmark_to_variants_to_means.items()])
-    # geomean between baseline and merged
-    gmean_baseline_merged = geometric_mean([v["baseline"]["total_average"] / v["merged"]["total_average"]
+    # geomean between baseline and perf
+    gmean_baseline_perf = geometric_mean([v["baseline"]["total_average"] / v["perf"]["total_average"]
                                          for b, v in benchmark_to_variants_to_means.items()])
 
     with open(mean_file, "w") as f:
-        # benchmark, baseline_ms, baseline_li, pgo_ms, pgo_li, merged_ms, merged_li, pgo_ex_ms, pgo_ex_li, merged_ex_ms, merged_ex_li
-        f.write("benchmark, baseline_total, baseline_it, pgo_total, pgo_it, merged_total, merged_it, pgo_ex_total, pgo_ex_it, merged_ex_total, merged_ex_it\n")
+        # benchmark, baseline_ms, baseline_li, pgo_ms, pgo_li, perf_ms, perf_li
+        f.write("benchmark, baseline_total, baseline_it, pgo_total, pgo_it, perf_total, perf_it\n")
         for benchmark, variants in benchmark_to_variants_to_means.items():
             line = []
             line.append(benchmark)
@@ -177,22 +173,16 @@ def main():
             line.append(variants["baseline"]["iteration_average"])
             line.append(variants["pgo"]["total_average"])
             line.append(variants["pgo"]["iteration_average"])
-            line.append(variants["merged"]["total_average"])
-            line.append(variants["merged"]["iteration_average"])
-            line.append(variants["pgo-ex"]["total_average"])
-            line.append(variants["pgo-ex"]["iteration_average"])
-            line.append(variants["merged-ex"]["total_average"])
-            line.append(variants["merged-ex"]["iteration_average"])
+            line.append(variants["perf"]["total_average"])
+            line.append(variants["perf"]["iteration_average"])
             line = [str(x) for x in line]
             f.write(f"{",".join(line)}\n")
 
     with open(geomean_file, "w") as f:
-        f.write(f"gmean_pgo_merged: {gmean_pgo_merged}\n")
-        f.write(f"gmean_pgo_ex_merged: {gmean_pgo_ex_merged_ex}\n")
-        f.write(f"gmean_pgo_merged_li: {gmean_pgo_merged_li}\n")
-        f.write(f"gmean_pgo_ex_merged_ex: {gmean_pgo_ex_merged_ex_li}\n")
+        f.write(f"gmean_pgo_perf: {gmean_pgo_perf}\n")
+        f.write(f"gmean_pgo_perf_li: {gmean_pgo_perf_li}\n")
         f.write(f"gmean_baseline_pgo: {gmean_baseline_pgo}\n")
-        f.write(f"gmean_baseline_merged: {gmean_baseline_merged}\n")
+        f.write(f"gmean_baseline_perf: {gmean_baseline_perf}\n")
     bar_chart(benchmark_to_variants_to_means=benchmark_to_variants_to_means, output_folder=output_folder)
     return
 
