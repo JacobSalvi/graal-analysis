@@ -224,6 +224,50 @@ public class App {
                         in.increment();
                         continue;
                     }
+
+                    // handle inlining
+                    // case:
+                    //     lastcond = [A:10]
+                    //     nodesofar = [ Branch([B:5<A:12]), ...]
+                    String prevCond = lastCond.stack().getFirst().substring(0, lastCond.stack().getFirst().lastIndexOf("["));
+                    String currCond = in.stack().getFirst().substring(0, in.stack().getFirst().lastIndexOf("["));
+                    boolean found = false;
+                    for(BranchNode bn: nodesSofar){
+                        for(String el : bn.stack()){
+                            String elMethod = el.substring(0, el.lastIndexOf("["));
+                            if(elMethod.equals(prevCond)){
+                                int bciEl = Integer.parseInt(el.substring(el.lastIndexOf(" ")+1, el.length()-1));
+                                if(bciEl >= lastCond.condInfo().truebci() && bciEl <= lastCond.condInfo().truebciend()){
+                                    lastCond.trueBranch().increment();
+                                    found = true;
+                                }else if(bciEl >= lastCond.condInfo().falsebci() && bciEl <= lastCond.condInfo().falsebciend()){
+                                    lastCond.falseBranch().increment();
+                                    found = true;
+                                }
+                            }
+                        }
+                    }
+                    // handle inlining
+                    // case:
+                    //     lastcond = [A:10]
+                    //     in = [B:5<A:12]
+                    // avoid double counting
+                    if(!found){
+                        for(String el : in.stack()){
+                            String elMethod = el.substring(0, el.lastIndexOf("["));
+                            if(elMethod.equals(prevCond)){
+                                int bciEl = Integer.parseInt(el.substring(el.lastIndexOf(" ")+1, el.length()-1));
+                                if(bciEl >= lastCond.condInfo().truebci() && bciEl <= lastCond.condInfo().truebciend()){
+                                    lastCond.trueBranch().increment();
+                                }else if(bciEl >= lastCond.condInfo().falsebci() && bciEl <= lastCond.condInfo().falsebciend()){
+                                    lastCond.falseBranch().increment();
+                                }
+                            }
+                        }
+                    }
+
+
+
                     var realfinal = lastCond;
                     nodesSofar=nodesSofar.stream().filter(n -> n.predecessor().equals(realfinal)).toList();
                     // analyze nodes so far
@@ -234,8 +278,6 @@ public class App {
                         // if in: bci 18
                         //    ....
                         // we need to update the successor of last cond with the latest bci
-                        String prevCond = lastCond.stack().getFirst().substring(0, lastCond.stack().getFirst().lastIndexOf("["));
-                        String currCond = in.stack().getFirst().substring(0, in.stack().getFirst().lastIndexOf("["));
                         if(prevCond.equals(currCond)){
                             if(lastCond.condInfo().truebci() > lastCond.condInfo().falsebci() && in.condInfo().getCondBci() >= lastCond.condInfo().truebci()){
                                 lastCond.trueBranch().increment();
@@ -371,6 +413,10 @@ public class App {
                     match = sm;
                     break;
                 }
+                if(offset > sm.beg() && offset < sm.end()){
+                    match = sm;
+                    break;
+                }
             }
             // if match is different to last match then we are mapping to a different line
             // These three instructions match to a single condition in the original java
@@ -388,7 +434,11 @@ public class App {
                 continue;
             }
             if(!match.equals(lastMatch)){
+                lastMatch.sanitize();
                 ProgramNode pn = pnb.getNode(lastMatch, firstOffset);
+                if(pn instanceof EmptyNode && lastMatch.sourcePosition().size() > 1){
+                    lastMatch.sourcePosition().removeFirst();
+                }
                 if(!pcToNode.containsKey(firstOffset)){
                     pcToNode.put(firstOffset, new PerfMatch(infos, lastMatch));
                 }

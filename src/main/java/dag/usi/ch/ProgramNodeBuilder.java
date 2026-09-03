@@ -215,7 +215,56 @@ public class ProgramNodeBuilder {
     }
     // case 4: we don't match any of the conditions
     // there was a node source position, but we couldn't match to a conditional
+
+    // fallback case:
+    // we might be part of the fallthrough but it might have fucked up basic blocks
+    for (BranchNode branchnode : branchNodes) {
+      ProgramNode candidate = fallback(branchnode.predecessor(), match);
+      if (candidate != null) {
+        pcToNode.put(pc, candidate);
+        return candidate;
+      }
+    }
     pcToNode.put(pc, EmptyNode.getInstance());
     return EmptyNode.getInstance();
+  }
+
+  private static ProgramNode fallback(IfNode ifNode, SourceMapping match){
+//    if(idk.getOrDefault(ifNode, 0) >2){
+//      System.out.println("robe");
+//    }
+//    idk.merge(ifNode, 1, Integer::sum);
+    for(ProgramNode node: ifNode.children()) {
+      if (Objects.requireNonNull(node) instanceof IfNode in) {
+        // found a child node that better encapsulates the match.
+        ProgramNode matchedNode = fallback(in, match);
+        if(matchedNode != null){
+          return matchedNode;
+        }
+      }
+    }
+    // no match in any of the children.
+    // we might match with the ifnode itself
+    String sp = match.sourcePosition().getFirst();
+    CondInfo ci = ifNode.condInfo();
+    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+    // case 2: we match with the true branch
+    BranchNode branchnode = (BranchNode) ifNode.trueBranch();
+    String trueSp = ci.trueBranch().getFirst();
+    if(!sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
+      return null;
+    }
+
+    // logic, Try to account for cases like
+    // if: 9
+    // truebranch: 10 - 14
+    // falsebranch: 15 - 19
+    // bci: 20
+    if(ci.truebciend() > ci.falsebciend() && bci >= ci.truebciend()){
+      return (BranchNode) ifNode.trueBranch();
+    }else if(bci>= ci.falsebciend()){
+      return (BranchNode) ifNode.falseBranch();
+    }
+    return null;
   }
 }
