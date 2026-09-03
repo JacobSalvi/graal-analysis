@@ -229,14 +229,14 @@ public class App {
                     // case:
                     //     lastcond = [A:10]
                     //     nodesofar = [ Branch([B:5<A:12]), ...]
-                    String prevCond = lastCond.stack().getFirst().substring(0, lastCond.stack().getFirst().lastIndexOf("["));
-                    String currCond = in.stack().getFirst().substring(0, in.stack().getFirst().lastIndexOf("["));
+                    String prevCond = lastCond.stack().getFirst().symbol();
+                    String currCond = in.stack().getFirst().symbol();
                     boolean found = false;
                     for(BranchNode bn: nodesSofar){
-                        for(String el : bn.stack()){
-                            String elMethod = el.substring(0, el.lastIndexOf("["));
+                        for(SourcePosition el : bn.stack()){
+                            String elMethod = el.symbol();
                             if(elMethod.equals(prevCond)){
-                                int bciEl = Integer.parseInt(el.substring(el.lastIndexOf(" ")+1, el.length()-1));
+                                int bciEl = el.bci();
                                 if(bciEl >= lastCond.condInfo().truebci() && bciEl <= lastCond.condInfo().truebciend()){
                                     lastCond.trueBranch().increment();
                                     found = true;
@@ -253,10 +253,10 @@ public class App {
                     //     in = [B:5<A:12]
                     // avoid double counting
                     if(!found){
-                        for(String el : in.stack()){
-                            String elMethod = el.substring(0, el.lastIndexOf("["));
+                        for(SourcePosition el : in.stack()){
+                            String elMethod = el.symbol();
                             if(elMethod.equals(prevCond)){
-                                int bciEl = Integer.parseInt(el.substring(el.lastIndexOf(" ")+1, el.length()-1));
+                                int bciEl = el.bci();
                                 if(bciEl >= lastCond.condInfo().truebci() && bciEl <= lastCond.condInfo().truebciend()){
                                     lastCond.trueBranch().increment();
                                 }else if(bciEl >= lastCond.condInfo().falsebci() && bciEl <= lastCond.condInfo().falsebciend()){
@@ -316,14 +316,6 @@ public class App {
                 case BranchNode bn -> {
                     // add to nodes so far
                     nodesSofar.add(bn);
-
-//                    assert lastCond != null;
-//                    if(lastCond == null){
-//                        continue;
-//                    }
-//                    if(lastCond.equals(bn.predecessor())){
-//                        bn.increment();
-//                    }
                 }
                 case EmptyNode ignored -> {}
                 default -> throw new IllegalStateException("Unexpected value: " + node);
@@ -397,6 +389,20 @@ public class App {
             }
             // cache to speed up execution
             if(pcToNode.containsKey(info.pc())){
+                // handle the dangling last match first
+                if(lastMatch!=null){
+                    lastMatch.sanitize();
+                    ProgramNode pn = pnb.getNode(lastMatch, firstOffset);
+                    if(pn instanceof EmptyNode && lastMatch.sourcePositions().size() > 1){
+                        lastMatch.sourcePositions().removeFirst();
+                    }
+                    if(!pcToNode.containsKey(firstOffset)){
+                        pcToNode.put(firstOffset, new PerfMatch(infos, lastMatch));
+                    }
+                    nodes.add(pn);
+                }
+
+
                 PerfMatch pm = pcToNode.get(info.pc());
                 ProgramNode pn = pnb.getNode(pm.match(), info.pc());
                 nodes.add(pn);
@@ -436,8 +442,8 @@ public class App {
             if(!match.equals(lastMatch)){
                 lastMatch.sanitize();
                 ProgramNode pn = pnb.getNode(lastMatch, firstOffset);
-                if(pn instanceof EmptyNode && lastMatch.sourcePosition().size() > 1){
-                    lastMatch.sourcePosition().removeFirst();
+                if(pn instanceof EmptyNode && lastMatch.sourcePositions().size() > 1){
+                    lastMatch.sourcePositions().removeFirst();
                 }
                 if(!pcToNode.containsKey(firstOffset)){
                     pcToNode.put(firstOffset, new PerfMatch(infos, lastMatch));
@@ -484,11 +490,12 @@ public class App {
         count = ci.p()+ci.uf()*count;
         executions = count;
         List<ContextComponent> contextComponents = new ArrayList<>();
-        for (String c : ci.cond()) {
-            String cName = c.substring(0, c.indexOf(" ["));
-            int bciConditional = Integer.parseInt(c.substring(c.lastIndexOf(" ")+1, c.length()-1));
+        for (SourcePosition c : ci.cond()) {
+            String symbol = c.symbol();
+            int bciConditional = c.bci();
             // take this part [([Ljava/lang/String;)V]
-            String signature = c.split(" ")[1];
+            String signature = symbol.split(" ")[1];
+            String cName = symbol.split(" ")[0];
             signature = signature.substring(1, signature.length()-1);
             ipf.addTypes(signature);
             contextComponents.add(new ContextComponent(cName, bciConditional, signature));
@@ -512,11 +519,11 @@ public class App {
                     executions = ctxAndExecutions.second();
                     ProgramNode trueBranchNode = in.trueBranch();
                     ProgramNode falseNode = in.falseBranch();
-                    String trueSp = trueBranchNode.stack().getFirst();
-                    int bci = Integer.parseInt(trueSp.substring(trueSp.lastIndexOf(" ") + 1, trueSp.length() - 1));
+                    SourcePosition trueSp = trueBranchNode.stack().getFirst();
+                    int bci = trueSp.bci();
                     trueBranches.add(new BranchData(bci, 0, trueBranchNode.count()));
-                    String falseSp= falseNode.stack().getFirst();
-                    bci = Integer.parseInt(falseSp.substring(falseSp.lastIndexOf(" ") + 1, falseSp.length() - 1));
+                    SourcePosition falseSp= falseNode.stack().getFirst();
+                    bci = falseSp.bci();
                     falseBranches.add(new BranchData(bci, 1, falseNode.count()));
                 }
                 default -> {

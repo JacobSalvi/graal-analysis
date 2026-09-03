@@ -81,6 +81,7 @@ public class ProgramNodeBuilder {
 //          System.out.println("i am an idiot");
 //        }
         int candidateRange = candidateCi.falsebci() - candidateCi.truebci();
+//        int candidateRange = Math.max(candidateCi.falsebciend(), candidateCi.truebciend())- candidateCi.getCondBci();
 
         // Pick the closest enclosing conditional
         if (candidateRange < smallestContainingRange) {
@@ -136,7 +137,7 @@ public class ProgramNodeBuilder {
   }
 
 
-  private static Map<ProgramNode, Integer> idk = new HashMap<>();
+//  private static Map<ProgramNode, Integer> idk = new HashMap<>();
   private static ProgramNode findEncapsulatingConditional(IfNode ifNode, SourceMapping match){
 //    if(idk.getOrDefault(ifNode, 0) >2){
 //      System.out.println("robe");
@@ -153,11 +154,11 @@ public class ProgramNodeBuilder {
     }
     // no match in any of the children.
     // we might match with the ifnode itself
-    String sp = match.sourcePosition().getFirst();
+    SourcePosition sp = match.sourcePositions().getFirst();
     CondInfo ci = ifNode.condInfo();
-    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+//    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
     // case 1: we match the condition itself.
-    for (String condSp : ci.cond()) {
+    for (SourcePosition condSp : ci.cond()) {
       if (condSp.equals(sp)) {
         return ifNode;
       }
@@ -165,12 +166,12 @@ public class ProgramNodeBuilder {
 
     // case 2: we match with the true branch
     BranchNode branchnode = (BranchNode) ifNode.trueBranch();
-    for (String trueSp : ci.trueBranch()) {
-      if (sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
+    for (SourcePosition trueSp : ci.trueBranch()) {
+      if (sp.symbol().equals(trueSp.symbol())) {
         // given that the compiler might remove portion of code
         // as long as the bytecode that was used to emit the binary code
         // comes from the true block, this should be correct.
-        if(bci >= ci.truebci() && bci <= ci.truebciend()){
+        if(sp.bci() >= ci.truebci() && sp.bci() <= ci.truebciend()){
           return branchnode;
         }
 //        if (bci < ci.truebci() || bci >= ci.falsebci()) {
@@ -180,9 +181,9 @@ public class ProgramNodeBuilder {
       }
     }
     // case 3: we match with the false branch
-    String falseSp = ci.falseBranch().getFirst();
-    if (sp.substring(0, sp.indexOf(" [")).equals(falseSp.substring(0, falseSp.indexOf(" [")))) {
-       if(bci >= ci.falsebci() && bci <= ci.falsebciend()){
+    SourcePosition falseSp = ci.falseBranch().getFirst();
+    if (sp.symbol().equals(falseSp.symbol())) {
+       if(sp.bci() >= ci.falsebci() && sp.bci() <= ci.falsebciend()){
         return ifNode.falseBranch();
       }
     }
@@ -196,10 +197,10 @@ public class ProgramNodeBuilder {
     List<IfNode> ifNodes = nodes.stream().filter(node -> node instanceof IfNode).map(node -> (IfNode) node).toList();
     List<BranchNode> branchNodes = nodes.stream().filter(node -> node instanceof BranchNode).map(node -> (BranchNode) node).toList();
     for (IfNode ifnode : ifNodes) {
-          String sp = match.sourcePosition().getFirst();
+          SourcePosition sp = match.sourcePositions().getFirst();
           CondInfo ci = ifnode.condInfo();
           // case 1: we match the condition itself.
-          for (String condSp : ci.cond()) {
+          for (SourcePosition condSp : ci.cond()) {
             if (condSp.equals(sp)) {
               pcToNode.put(pc, ifnode);
               return ifnode;
@@ -245,13 +246,12 @@ public class ProgramNodeBuilder {
     }
     // no match in any of the children.
     // we might match with the ifnode itself
-    String sp = match.sourcePosition().getFirst();
+    SourcePosition sp = match.sourcePositions().getFirst();
     CondInfo ci = ifNode.condInfo();
-    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+//    int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
     // case 2: we match with the true branch
-    BranchNode branchnode = (BranchNode) ifNode.trueBranch();
-    String trueSp = ci.trueBranch().getFirst();
-    if(!sp.substring(0, sp.indexOf(" [")).equals(trueSp.substring(0, trueSp.indexOf(" [")))) {
+      SourcePosition trueSp = ci.trueBranch().getFirst();
+    if(!sp.symbol().equals(trueSp.symbol())) {
       return null;
     }
 
@@ -260,10 +260,10 @@ public class ProgramNodeBuilder {
     // truebranch: 10 - 14
     // falsebranch: 15 - 19
     // bci: 20
-    if(ci.truebciend() > ci.falsebciend() && bci >= ci.truebciend()){
-      return (BranchNode) ifNode.trueBranch();
-    }else if(bci>= ci.falsebciend()){
-      return (BranchNode) ifNode.falseBranch();
+    if(ci.truebciend() > ci.falsebciend() && sp.bci() >= ci.truebciend()){
+      return ifNode.trueBranch();
+    }else if(sp.bci()>= ci.falsebciend()){
+      return ifNode.falseBranch();
     }
     return null;
   }

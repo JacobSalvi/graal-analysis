@@ -1,15 +1,12 @@
 package dag.usi.ch;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 public class CondInfo {
  private static Map<String, Integer> nameToId = new HashMap<>();
  private static int currentId = 0;
 
- private final List<String> cond;
- private final List<String> trueBranch;
+ private final List<SourcePosition> cond;
+ private final List<SourcePosition> trueBranch;
  private final int lineNumber;
  private final int condBci;
  private final String methodname;
@@ -18,17 +15,35 @@ public class CondInfo {
  private final int truebciend;
  private final int falsebci;
  private final int falsebciend;
- private final List<String> falseBranch;
+ private final List<SourcePosition> falseBranch;
  private final Integer endbci;
  private int uf;
  private int p;
 
  public CondInfo(List<String> cond, List<String> trueBranch, int truebci, int falsebci, List<String> falseBranch, Integer end, int uf, int p) {
-  this.cond = cond;
-  this.trueBranch = trueBranch;
+  List<SourcePosition> conds = new ArrayList<>();
+  for(String sp: cond){
+   int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+   String symbol = sp.substring(0, sp.lastIndexOf(" ["));
+   conds.add(new SourcePosition(symbol, bci));
+  }
+  this.cond=conds;
+  List<SourcePosition> tbs = new ArrayList<>();
+  for(String sp: trueBranch){
+   int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+   String symbol = sp.substring(0, sp.lastIndexOf(" ["));
+   tbs.add(new SourcePosition(symbol, bci));
+  }
+  this.trueBranch = tbs;
   this.truebci = truebci;
   this.falsebci = falsebci;
-  this.falseBranch = falseBranch;
+  List<SourcePosition> fbs = new ArrayList<>();
+  for(String sp: falseBranch){
+   int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+   String symbol = sp.substring(0, sp.lastIndexOf(" ["));
+   fbs.add(new SourcePosition(symbol, bci));
+  }
+  this.falseBranch = fbs;
   this.endbci = end;
   this.uf = uf;
   this.p = p;
@@ -51,11 +66,11 @@ public class CondInfo {
   }
  }
 
- public List<String> cond() {
+ public List<SourcePosition> cond() {
   return cond;
  }
 
- public List<String> trueBranch() {
+ public List<SourcePosition> trueBranch() {
   return trueBranch;
  }
 
@@ -67,7 +82,7 @@ public class CondInfo {
   return falsebci;
  }
 
- public List<String> falseBranch() {
+ public List<SourcePosition> falseBranch() {
   return falseBranch;
  }
 

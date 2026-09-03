@@ -5,7 +5,7 @@ import java.util.List;
 public class BranchNode extends ProgramNode{
     private IfNode predecessor;
 
-    public BranchNode(List<String> stack){
+    public BranchNode(List<SourcePosition> stack){
         super(stack);
     }
 

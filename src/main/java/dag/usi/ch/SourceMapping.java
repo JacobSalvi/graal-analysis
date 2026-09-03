@@ -1,11 +1,12 @@
 package dag.usi.ch;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 public final class SourceMapping {
     private final List<String> bytes;
-    private List<String> sourcePosition;
+    private List<SourcePosition> sourcePositions;
     private final int functionNameId;
     private final int beg;
     private final int end;
@@ -20,7 +21,13 @@ public final class SourceMapping {
             int calleeId
     ) {
         this.bytes = bytes;
-        this.sourcePosition = sourcePosition;
+        List<SourcePosition> sps = new ArrayList<>();
+        for(String sp: sourcePosition){
+            int bci = Integer.parseInt(sp.substring(sp.lastIndexOf(" ") + 1, sp.length() - 1));
+            String symbol = sp.substring(0, sp.lastIndexOf(" ["));
+            sps.add(new SourcePosition(symbol, bci));
+        }
+        this.sourcePositions = sps;
         this.functionNameId = functionNameId;
         this.beg = beg;
         this.end = end;
@@ -28,15 +35,15 @@ public final class SourceMapping {
     }
 
     void sanitize() {
-        this.sourcePosition = this.sourcePosition.stream().filter(e -> !e.contains("bci: -1")).collect(java.util.stream.Collectors.toList());
+        this.sourcePositions = this.sourcePositions.stream().filter(e -> e.bci() != -1).collect(java.util.stream.Collectors.toList());
     }
 
     public List<String> bytes() {
         return bytes;
     }
 
-    public List<String> sourcePosition() {
-        return sourcePosition;
+    public List<SourcePosition> sourcePositions() {
+        return sourcePositions;
     }
 
     public int functionNameId() {
@@ -61,7 +68,7 @@ public final class SourceMapping {
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (SourceMapping) obj;
         return Objects.equals(this.bytes, that.bytes) &&
-                Objects.equals(this.sourcePosition, that.sourcePosition) &&
+                Objects.equals(this.sourcePositions, that.sourcePositions) &&
                 this.functionNameId == that.functionNameId &&
                 this.beg == that.beg &&
                 this.end == that.end &&
@@ -70,14 +77,14 @@ public final class SourceMapping {
 
     @Override
     public int hashCode() {
-        return Objects.hash(bytes, sourcePosition, functionNameId, beg, end, calleeId);
+        return Objects.hash(bytes, sourcePositions, functionNameId, beg, end, calleeId);
     }
 
     @Override
     public String toString() {
         return "SourceMapping[" +
                 "bytes=" + bytes + ", " +
-                "sourcePosition=" + sourcePosition + ", " +
+                "sourcePosition=" + sourcePositions + ", " +
                 "functionNameId=" + functionNameId + ", " +
                 "beg=" + beg + ", " +
                 "end=" + end + ", " +

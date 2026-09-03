@@ -6,11 +6,11 @@ import java.util.List;
 
 public class ProgramNode {
   private ProgramNode parent;
-  private List<ProgramNode> children = new ArrayList<>();
-  private final List<String> stack;
+  private final List<ProgramNode> children = new ArrayList<>();
+  private final List<SourcePosition> stack;
   private int count = 0;
 
-  ProgramNode(List<String> stack) {
+  ProgramNode(List<SourcePosition> stack) {
     this.stack = stack;
   }
 
@@ -42,7 +42,7 @@ public class ProgramNode {
     count=c;
   }
 
-  public List<String> stack(){
+  public List<SourcePosition> stack(){
     return stack;
   }
 }
